@@ -32,11 +32,19 @@ export class PaymentProviderManager {
     }));
   }
 
-  // First registered provider of a platform is the one new subscriptions use
+  // The one new subscriptions use for a platform: DEFAULT_WEB_PAYMENT_PROVIDER
+  // picks it for 'web' when set (e.g. 'razorpay'); otherwise the first
+  // registered provider of that platform wins, same as before.
   getDefaultProvider(platform: PaymentPlatform) {
-    const found = this.getProviders().find(
+    const providers = this.getProviders().filter(
       (p) => p.provider.platform === platform
     );
+
+    const preferred =
+      platform === 'web' ? process.env.DEFAULT_WEB_PAYMENT_PROVIDER : undefined;
+    const found = preferred
+      ? providers.find((p) => p.name === preferred) || providers[0]
+      : providers[0];
 
     if (!found) {
       throw new Error(`No payment provider registered for ${platform}`);
