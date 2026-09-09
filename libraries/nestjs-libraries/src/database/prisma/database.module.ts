@@ -23,6 +23,7 @@ import { ItemUserService } from '@gitroom/nestjs-libraries/database/prisma/marke
 import { MessagesService } from '@gitroom/nestjs-libraries/database/prisma/marketplace/messages.service';
 import { MessagesRepository } from '@gitroom/nestjs-libraries/database/prisma/marketplace/messages.repository';
 import { StripeService } from '@gitroom/nestjs-libraries/services/stripe.service';
+import { RazorpayService } from '@gitroom/nestjs-libraries/services/razorpay.service';
 import { ExtractContentService } from '@gitroom/nestjs-libraries/openai/extract.content.service';
 import { OpenaiService } from '@gitroom/nestjs-libraries/openai/openai.service';
 import { AgenciesService } from '@gitroom/nestjs-libraries/database/prisma/agencies/agencies.service';
@@ -68,6 +69,7 @@ import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integration
     PostsService,
     PostsRepository,
     StripeService,
+    RazorpayService,
     MessagesRepository,
     SignatureRepository,
     AutopostRepository,
