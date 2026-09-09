@@ -12,6 +12,7 @@ import { useToaster } from '@gitroom/react/toaster/toaster';
 import dayjs from 'dayjs';
 import clsx from 'clsx';
 import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
+import { pricingINR } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 import { FAQComponent } from '@gitroom/frontend/components/billing/faq.component';
 import { useSWRConfig } from 'swr';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
@@ -213,7 +214,17 @@ export const MainBillingComponent: FC<{
   sub?: Subscription;
 }> = (props) => {
   const { sub } = props;
-  const { isGeneral } = useVariables();
+  const { isGeneral, currency } = useVariables();
+  const currencySymbol = currency === 'inr' ? '₹' : '$';
+  const getPrice = useCallback(
+    (tier: string, period: 'month_price' | 'year_price') => {
+      if (currency === 'inr' && tier in pricingINR) {
+        return pricingINR[tier as keyof typeof pricingINR][period];
+      }
+      return pricing[tier][period];
+    },
+    [currency]
+  );
   const { mutate } = useSWRConfig();
   const fetch = useFetch();
   const toast = useToaster();
@@ -393,10 +404,10 @@ export const MainBillingComponent: FC<{
         ).json();
         if (url) {
           await track(TrackEnum.InitiateCheckout, {
-            value:
-              pricing[billing][
-                monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
-              ],
+            value: getPrice(
+              billing,
+              monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
+            ),
           });
           window.location.href = url;
           return;
@@ -463,10 +474,11 @@ export const MainBillingComponent: FC<{
               <div className="text-[18px]">{name}</div>
               <div className="text-[38px] flex gap-[2px] items-center">
                 <div>
-                  $
-                  {monthlyOrYearly === 'on'
-                    ? values.year_price
-                    : values.month_price}
+                  {currencySymbol}
+                  {getPrice(
+                    name,
+                    monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
+                  )}
                 </div>
                 <div className={`text-[14px] text-customColor18`}>
                   {monthlyOrYearly === 'on' ? '/year' : '/month'}

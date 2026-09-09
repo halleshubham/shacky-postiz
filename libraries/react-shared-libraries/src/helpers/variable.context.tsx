@@ -24,6 +24,7 @@ interface VariableContextInterface {
   tolt: string;
   transloadit: string[];
   sentryDsn: string;
+  currency: 'usd' | 'inr';
 }
 const VariableContext = createContext({
   billingEnabled: false,
@@ -47,6 +48,7 @@ const VariableContext = createContext({
   tolt: '',
   transloadit: [],
   sentryDsn: '',
+  currency: 'usd',
 } as VariableContextInterface);
 export const VariableContextComponent: FC<
   VariableContextInterface & {
