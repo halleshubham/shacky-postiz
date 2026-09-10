@@ -15,3 +15,6 @@ export const pricingINR: Record<
   PRO: { month_price: 2499, year_price: 24990 },
   ULTIMATE: { month_price: 4999, year_price: 49990 },
 };
+
+// One-time purchase, not a subscription plan - grants PRO with isLifetime.
+export const LIFETIME_PRO_PRICE_INR = 19999;

@@ -1,13 +1,19 @@
 import { HttpException, Injectable } from '@nestjs/common';
 import Razorpay from 'razorpay';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { validateWebhookSignature } = require('razorpay/dist/utils/razorpay-utils');
+const {
+  validateWebhookSignature,
+  validatePaymentVerification,
+} = require('razorpay/dist/utils/razorpay-utils');
 import { SubscriptionService } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/subscription.service';
 import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.service';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { BillingSubscribeDto } from '@gitroom/nestjs-libraries/dtos/billing/billing.subscribe.dto';
 import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
-import { pricingINR } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
+import {
+  pricingINR,
+  LIFETIME_PRO_PRICE_INR,
+} from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'rzp_nothing',
@@ -49,6 +55,14 @@ export class RazorpayService {
   }
 
   async processWebhook(event: any) {
+    // One-time lifetime purchase (Orders API), not a subscription - the
+    // client-side signature check in verifyLifetimePayment is the primary
+    // confirmation path, this is just a backup in case the browser tab
+    // closed before that call went out. Idempotent either way.
+    if (event.event === 'payment.captured') {
+      return this.handleLifetimePayment(event?.payload?.payment?.entity);
+    }
+
     const entity = event?.payload?.subscription?.entity;
     if (!entity || entity?.notes?.service !== 'gitroom') {
       return { ok: true };
@@ -71,6 +85,94 @@ export class RazorpayService {
       default:
         return { ok: true };
     }
+  }
+
+  private async handleLifetimePayment(paymentEntity: any) {
+    if (!paymentEntity?.order_id) {
+      return { ok: true };
+    }
+    // Notes are set on the order at creation, not copied onto the payment
+    // entity automatically - fetch the order to read them.
+    const order = await razorpay.orders.fetch(paymentEntity.order_id);
+    const notes = (order.notes || {}) as {
+      service?: string;
+      type?: string;
+      organizationId?: string;
+      id?: string;
+    };
+    if (notes.service !== 'gitroom' || notes.type !== 'lifetime' || !notes.organizationId) {
+      return { ok: true };
+    }
+
+    await this._subscriptionService.lifeTime(
+      notes.organizationId,
+      notes.id || paymentEntity.id,
+      'PRO'
+    );
+    return { ok: true };
+  }
+
+  // One-time payment (Razorpay Orders, not Subscriptions) for a lifetime
+  // PRO plan - replaces the old crypto/Nowpayments lifetime purchase.
+  async createLifetimeOrder(organizationId: string) {
+    const id = makeId(10);
+    const order = await razorpay.orders.create({
+      amount: LIFETIME_PRO_PRICE_INR * 100,
+      currency: 'INR',
+      receipt: id,
+      notes: {
+        service: 'gitroom',
+        type: 'lifetime',
+        organizationId,
+        id,
+      },
+    });
+
+    return {
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+    };
+  }
+
+  // Razorpay Orders/Payments have a real signature-verified success
+  // callback (unlike Subscriptions' bare short_url) - this is the primary
+  // confirmation path, checked synchronously right after Checkout succeeds
+  // rather than waiting on the webhook backup above.
+  async verifyLifetimePayment(
+    organizationId: string,
+    body: {
+      razorpay_order_id: string;
+      razorpay_payment_id: string;
+      razorpay_signature: string;
+    }
+  ) {
+    const valid = validatePaymentVerification(
+      { order_id: body.razorpay_order_id, payment_id: body.razorpay_payment_id },
+      body.razorpay_signature,
+      process.env.RAZORPAY_KEY_SECRET
+    );
+    if (!valid) {
+      throw new HttpException('Invalid payment signature', 400);
+    }
+
+    const order = await razorpay.orders.fetch(body.razorpay_order_id);
+    const notes = (order.notes || {}) as {
+      type?: string;
+      organizationId?: string;
+      id?: string;
+    };
+    if (notes.type !== 'lifetime' || notes.organizationId !== organizationId) {
+      throw new HttpException('Order does not match this organization', 400);
+    }
+
+    await this._subscriptionService.lifeTime(
+      organizationId,
+      notes.id || body.razorpay_payment_id,
+      'PRO'
+    );
+
+    return { success: true };
   }
 
   private async upsertSubscription(entity: any) {
@@ -297,7 +399,37 @@ export class RazorpayService {
       throw new HttpException('No active subscription', 400);
     }
     const id = makeId(10);
-    await razorpay.subscriptions.cancel(org.paymentId, true);
-    return { id };
+    const currentSubscription = await this._subscriptionService.getSubscription(
+      organizationId
+    );
+
+    const subscription = await razorpay.subscriptions.cancel(
+      org.paymentId,
+      true
+    );
+
+    // cancelAtCycleEnd leaves the subscription 'active' in Razorpay until
+    // the period actually ends (it has no dedicated "cancels at" field like
+    // Stripe's cancel_at) - current_end is that date. Write it into our own
+    // row immediately rather than waiting on a webhook, since Razorpay
+    // doesn't reliably send one for this specific transition, and the
+    // frontend uses this response's cancel_at to update the UI right away.
+    const cancelAt = subscription.current_end;
+    if (currentSubscription && cancelAt) {
+      await this._subscriptionService.createOrUpdateSubscription(
+        false,
+        currentSubscription.identifier || id,
+        org.paymentId,
+        currentSubscription.totalChannels,
+        currentSubscription.subscriptionTier as 'STANDARD' | 'PRO',
+        currentSubscription.period,
+        cancelAt
+      );
+    }
+
+    return {
+      id,
+      cancel_at: cancelAt ? new Date(cancelAt * 1000) : undefined,
+    };
   }
 }

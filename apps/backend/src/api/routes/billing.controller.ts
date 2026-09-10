@@ -16,7 +16,6 @@ import { ApiTags } from '@nestjs/swagger';
 import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 import { Request } from 'express';
-import { Nowpayments } from '@gitroom/nestjs-libraries/crypto/nowpayments';
 import { AuthService } from '@gitroom/helpers/auth/auth.service';
 import { RazorpayService } from '@gitroom/nestjs-libraries/services/razorpay.service';
 
@@ -27,8 +26,7 @@ export class BillingController {
     private _subscriptionService: SubscriptionService,
     private _stripeService: StripeService,
     private _razorpayService: RazorpayService,
-    private _notificationService: NotificationService,
-    private _nowpayments: Nowpayments
+    private _notificationService: NotificationService
   ) {}
 
   // Razorpay subscription ids are `sub_...`, Stripe customer ids `cus_...`.
@@ -197,8 +195,21 @@ export class BillingController {
     );
   }
 
-  @Get('/crypto')
-  async crypto(@GetOrgFromRequest() org: Organization) {
-    return this._nowpayments.createPaymentPage(org.id);
+  @Post('/lifetime/razorpay/order')
+  async createLifetimeRazorpayOrder(@GetOrgFromRequest() org: Organization) {
+    return this._razorpayService.createLifetimeOrder(org.id);
+  }
+
+  @Post('/lifetime/razorpay/verify')
+  async verifyLifetimeRazorpay(
+    @GetOrgFromRequest() org: Organization,
+    @Body()
+    body: {
+      razorpay_order_id: string;
+      razorpay_payment_id: string;
+      razorpay_signature: string;
+    }
+  ) {
+    return this._razorpayService.verifyLifetimePayment(org.id, body);
   }
 }
