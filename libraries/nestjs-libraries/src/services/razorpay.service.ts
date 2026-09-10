@@ -55,6 +55,11 @@ export class RazorpayService {
     }
 
     switch (event.event) {
+      // 'authenticated' fires as soon as the mandate is registered - for a
+      // trial subscription (future start_at) this is the ONLY event we get
+      // until the trial ends, so it has to create the DB row too, or the
+      // frontend's post-checkout poll (checkSubscription) would spin forever.
+      case 'subscription.authenticated':
       case 'subscription.activated':
       case 'subscription.charged':
       case 'subscription.updated':
@@ -69,10 +74,11 @@ export class RazorpayService {
   }
 
   private async upsertSubscription(entity: any) {
-    const { billing, period, organizationId } = entity.notes as {
+    const { billing, period, organizationId, id } = entity.notes as {
       billing: Billing;
       period: Period;
       organizationId: string;
+      id: string;
     };
     if (!organizationId || !billing || !period) {
       return { ok: false };
@@ -89,7 +95,10 @@ export class RazorpayService {
 
     return this._subscriptionService.createOrUpdateSubscription(
       isTrailing,
-      makeId(10),
+      // Must be the same `id` `subscribe()` put in notes and handed back to
+      // the frontend as `checkId` - checkSubscription() below matches on it
+      // to tell the post-checkout poll the webhook has landed.
+      id || makeId(10),
       entity.id,
       pricing[billing].channel || 0,
       // createOrUpdateSubscription's own type is narrower ('STANDARD' | 'PRO')
@@ -196,7 +205,11 @@ export class RazorpayService {
       subscription.id
     );
 
-    return { url: subscription.short_url };
+    // Razorpay's hosted short_url page has no callback/success URL - the
+    // frontend embeds Razorpay Checkout instead, using razorpaySubscriptionId
+    // to open it and checkId to poll /billing/check/:id afterwards, same as
+    // the Stripe checkout-session flow's `check=${uniqueId}` redirect.
+    return { razorpaySubscriptionId: subscription.id, checkId: id };
   }
 
   // Moves `start_at` to now on a not-yet-started subscription, ending the
@@ -248,13 +261,34 @@ export class RazorpayService {
     return { price: Math.max((newPrice - currentPrice) * remainingFraction, 0) };
   }
 
+  // Called by the post-checkout poll (CheckPayment component) with the same
+  // local `checkId` returned from subscribe() - NOT a Razorpay id. Contract
+  // matches StripeService.checkSubscription: 0 keep polling, 1 failed,
+  // 2 succeeded.
   async checkSubscription(organizationId: string, subscriptionId: string) {
-    const org = await this._organizationService.getOrgById(organizationId);
-    if (org?.paymentId !== subscriptionId) {
-      return { active: false };
+    const orgValue = await this._subscriptionService.checkSubscription(
+      organizationId,
+      subscriptionId
+    );
+    if (orgValue) {
+      return 2;
     }
-    const subscription = await razorpay.subscriptions.fetch(subscriptionId);
-    return { active: subscription.status === 'active' };
+
+    const org = await this._organizationService.getOrgById(organizationId);
+    if (!org?.paymentId) {
+      return 0;
+    }
+
+    try {
+      const subscription = await razorpay.subscriptions.fetch(org.paymentId);
+      if (['cancelled', 'expired', 'completed'].includes(subscription.status)) {
+        return 1;
+      }
+    } catch (err) {
+      return 0;
+    }
+
+    return 0;
   }
 
   async setToCancel(organizationId: string) {

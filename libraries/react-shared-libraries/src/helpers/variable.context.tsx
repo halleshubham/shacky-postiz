@@ -25,6 +25,7 @@ interface VariableContextInterface {
   transloadit: string[];
   sentryDsn: string;
   currency: 'usd' | 'inr';
+  razorpayKeyId: string;
 }
 const VariableContext = createContext({
   billingEnabled: false,
@@ -49,6 +50,7 @@ const VariableContext = createContext({
   transloadit: [],
   sentryDsn: '',
   currency: 'usd',
+  razorpayKeyId: '',
 } as VariableContextInterface);
 export const VariableContextComponent: FC<
   VariableContextInterface & {
