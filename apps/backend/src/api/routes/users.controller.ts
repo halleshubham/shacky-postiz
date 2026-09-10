@@ -153,6 +153,9 @@ export class UsersController {
   @Get('/subscription/tiers')
   @CheckPolicies([AuthorizationActions.Create, Sections.ADMIN])
   async tiers() {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return {};
+    }
     return this._stripeService.getPackages();
   }
 
