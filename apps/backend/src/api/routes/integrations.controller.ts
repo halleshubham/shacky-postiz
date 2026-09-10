@@ -478,7 +478,7 @@ export class IntegrationsController {
     }
 
     if (
-      process.env.STRIPE_PUBLISHABLE_KEY &&
+      (process.env.STRIPE_PUBLISHABLE_KEY || process.env.RAZORPAY_KEY_ID) &&
       org.isTrailing &&
       (await this._integrationService.checkPreviousConnections(
         org.id,

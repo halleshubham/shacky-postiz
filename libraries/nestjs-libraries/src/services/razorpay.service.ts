@@ -82,8 +82,13 @@ export class RazorpayService {
     // checkout flow's own write (in `subscribe`) was ever missed.
     await this._subscriptionService.updateCustomerId(organizationId, entity.id);
 
+    // Razorpay subscriptions sit in 'authenticated' status from mandate
+    // registration until `start_at` arrives and the first real charge
+    // succeeds (status becomes 'active') - that window is our trial period.
+    const isTrailing = entity.status === 'authenticated';
+
     return this._subscriptionService.createOrUpdateSubscription(
-      false,
+      isTrailing,
       makeId(10),
       entity.id,
       pricing[billing].channel || 0,
@@ -138,10 +143,42 @@ export class RazorpayService {
     const id = makeId(10);
     const plan = await this.findOrCreatePlan(body.billing, body.period);
 
+    // Existing subscriber changing tier/period - update the live Razorpay
+    // subscription in place instead of starting a second one, mirroring
+    // StripeService.subscribe's `subscriptions.update` branch. Falls through
+    // to creating a fresh subscription below if this org has no subscription
+    // yet, or if the update is rejected (e.g. the old one already ended).
+    const existingSubscription = await this._subscriptionService.getSubscription(
+      organizationId
+    );
+    if (existingSubscription) {
+      const org = await this._organizationService.getOrgById(organizationId);
+      if (org?.paymentId?.startsWith('sub_')) {
+        try {
+          await razorpay.subscriptions.update(org.paymentId, {
+            plan_id: plan.id,
+            schedule_change_at: 'now',
+            customer_notify: 1,
+          });
+          return { id };
+        } catch (err) {
+          // fall through to a fresh subscription
+        }
+      }
+    }
+
+    // Razorpay has no separate "trial_period_days" - delaying `start_at`
+    // leaves the subscription in 'authenticated' status (mandate registered,
+    // not yet charged) until that date, which is our trial equivalent.
+    const startAt = allowTrial
+      ? Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60
+      : undefined;
+
     const subscription = await razorpay.subscriptions.create({
       plan_id: plan.id,
       total_count: TOTAL_COUNT[body.period],
       customer_notify: 1,
+      ...(startAt ? { start_at: startAt } : {}),
       notes: {
         service: 'gitroom',
         billing: body.billing,
@@ -160,6 +197,55 @@ export class RazorpayService {
     );
 
     return { url: subscription.short_url };
+  }
+
+  // Moves `start_at` to now on a not-yet-started subscription, ending the
+  // trial early and triggering the first charge immediately.
+  async finishTrial(subscriptionId: string) {
+    return razorpay.subscriptions.update(subscriptionId, {
+      start_at: Math.floor(Date.now() / 1000),
+      schedule_change_at: 'now',
+    });
+  }
+
+  // Razorpay has no upcoming-invoice preview like Stripe's - estimate the
+  // switch cost ourselves from the remaining time in the current billing
+  // cycle, so the UI can still show a "pay today" figure before committing.
+  async prorate(organizationId: string, body: BillingSubscribeDto) {
+    const [org, currentSubscription] = await Promise.all([
+      this._organizationService.getOrgById(organizationId),
+      this._subscriptionService.getSubscription(organizationId),
+    ]);
+
+    if (!org?.paymentId || !currentSubscription) {
+      return { price: false };
+    }
+
+    const razorpaySubscription = await razorpay.subscriptions.fetch(
+      org.paymentId
+    );
+    if (razorpaySubscription.status !== 'active') {
+      return { price: false };
+    }
+
+    const priceKey = body.period === 'MONTHLY' ? 'month_price' : 'year_price';
+    const currentPrice =
+      pricingINR[currentSubscription.subscriptionTier as Billing]?.[
+        priceKey
+      ] || 0;
+    const newPrice = pricingINR[body.billing][priceKey];
+
+    const cycleStart = razorpaySubscription.current_start;
+    const cycleEnd = razorpaySubscription.current_end;
+    if (!cycleStart || !cycleEnd || cycleEnd <= cycleStart) {
+      return { price: newPrice };
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const remainingFraction =
+      Math.max(cycleEnd - now, 0) / (cycleEnd - cycleStart);
+
+    return { price: Math.max((newPrice - currentPrice) * remainingFraction, 0) };
   }
 
   async checkSubscription(organizationId: string, subscriptionId: string) {

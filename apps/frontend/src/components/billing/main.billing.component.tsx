@@ -38,6 +38,8 @@ export const Prorate: FC<{
   const { period, pack } = props;
   const t = useT();
   const fetch = useFetch();
+  const { currency } = useVariables();
+  const currencySymbol = currency === 'inr' ? '₹' : '$';
   const [price, setPrice] = useState<number | false>(0);
   const [loading, setLoading] = useState(false);
   const calculatePrice = useDebouncedCallback(async () => {
@@ -73,7 +75,8 @@ export const Prorate: FC<{
   }
   return (
     <div className="text-[12px] flex pt-[12px]">
-      ({t('pay_today', 'Pay Today')} ${(price < 0 ? 0 : price)?.toFixed(1)})
+      ({t('pay_today', 'Pay Today')} {currencySymbol}
+      {(price < 0 ? 0 : price)?.toFixed(1)})
     </div>
   );
 };

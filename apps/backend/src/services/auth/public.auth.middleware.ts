@@ -20,7 +20,10 @@ export class PublicAuthMiddleware implements NestMiddleware {
         return;
       }
 
-      if (!!process.env.STRIPE_SECRET_KEY && !org.subscription) {
+      if (
+        (!!process.env.STRIPE_SECRET_KEY || !!process.env.RAZORPAY_KEY_ID) &&
+        !org.subscription
+      ) {
         res
           .status(HttpStatus.UNAUTHORIZED)
           .json({ msg: 'No subscription found' });

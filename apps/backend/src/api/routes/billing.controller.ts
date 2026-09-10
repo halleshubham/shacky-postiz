@@ -55,6 +55,11 @@ export class BillingController {
 
   @Get('/check-discount')
   async checkDiscount(@GetOrgFromRequest() org: Organization) {
+    // Razorpay has no pre-created "retention offer" set up - skip straight
+    // to no-coupon rather than calling Stripe for an org that isn't on it.
+    if (this.isRazorpayOrg(org)) {
+      return { offerCoupon: false };
+    }
     return {
       offerCoupon: !(await this._stripeService.checkDiscount(org.paymentId))
         ? false
@@ -64,13 +69,20 @@ export class BillingController {
 
   @Post('/apply-discount')
   async applyDiscount(@GetOrgFromRequest() org: Organization) {
+    if (this.isRazorpayOrg(org)) {
+      return;
+    }
     await this._stripeService.applyDiscount(org.paymentId);
   }
 
   @Post('/finish-trial')
   async finishTrial(@GetOrgFromRequest() org: Organization) {
     try {
-      await this._stripeService.finishTrial(org.paymentId);
+      if (this.isRazorpayOrg(org)) {
+        await this._razorpayService.finishTrial(org.paymentId);
+      } else {
+        await this._stripeService.finishTrial(org.paymentId);
+      }
     } catch (err) {}
     return {
       finish: true,
@@ -155,7 +167,9 @@ export class BillingController {
     @GetOrgFromRequest() org: Organization,
     @Body() body: BillingSubscribeDto
   ) {
-    return this._stripeService.prorate(org.id, body);
+    return this.isRazorpayOrg(org)
+      ? this._razorpayService.prorate(org.id, body)
+      : this._stripeService.prorate(org.id, body);
   }
 
   @Post('/lifetime')

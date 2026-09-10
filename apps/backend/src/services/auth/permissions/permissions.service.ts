@@ -18,13 +18,17 @@ export class PermissionsService {
     private _integrationService: IntegrationService,
     private _webhooksService: WebhooksService
   ) {}
+  private noPaymentProvider() {
+    return !process.env.STRIPE_PUBLISHABLE_KEY && !process.env.RAZORPAY_KEY_ID;
+  }
+
   async getPackageOptions(orgId: string) {
     const subscription =
       await this._subscriptionService.getSubscriptionByOrganizationId(orgId);
 
     const tier =
       subscription?.subscriptionTier ||
-      (!process.env.STRIPE_PUBLISHABLE_KEY ? 'PRO' : 'FREE');
+      (this.noPaymentProvider() ? 'PRO' : 'FREE');
 
     const { channel, ...all } = pricing[tier];
     return {
@@ -46,10 +50,7 @@ export class PermissionsService {
       Ability<[AuthorizationActions, Sections]>
     >(Ability as AbilityClass<AppAbility>);
 
-    if (
-      requestedPermission.length === 0 ||
-      !process.env.STRIPE_PUBLISHABLE_KEY
-    ) {
+    if (requestedPermission.length === 0 || this.noPaymentProvider()) {
       for (const [action, section] of requestedPermission) {
         can(action, section);
       }
