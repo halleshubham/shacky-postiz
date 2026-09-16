@@ -178,6 +178,18 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
     const accountsData = await accountsResponse.json();
 
     if (!accountsData.accounts || accountsData.accounts.length === 0) {
+      // Logged because an empty/missing accounts list here is ambiguous -
+      // it's the same response shape whether the user genuinely has no GMB
+      // account, or the underlying API call failed (unenabled API, no access
+      // grant from Google, wrong OAuth client/scopes, etc). This log line is
+      // the only way to tell those apart after the fact.
+      console.error(
+        'GMB: no accounts returned from mybusinessaccountmanagement API',
+        {
+          status: accountsResponse.status,
+          body: accountsData,
+        }
+      );
       return [];
     }
 
@@ -203,6 +215,19 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
           }
         );
         const locationsData = await locationsResponse.json();
+
+        if (!locationsData.locations) {
+          // Same ambiguity as the accounts check above - a non-2xx response
+          // with an error body resolves here rather than throwing, so this
+          // would otherwise fail completely silently.
+          console.error(
+            `GMB: no locations returned for account ${accountName}`,
+            {
+              status: locationsResponse.status,
+              body: locationsData,
+            }
+          );
+        }
 
         if (locationsData.locations) {
           for (const location of locationsData.locations) {
