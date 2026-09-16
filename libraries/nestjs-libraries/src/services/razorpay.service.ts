@@ -217,8 +217,11 @@ export class RazorpayService {
     return this._subscriptionService.deleteSubscription(entity.id);
   }
 
-  // Razorpay Plans have no "list by product name" like Stripe - we find one
-  // by matching our own notes, and create it on first use per tier+period.
+  // Razorpay Plans have no "list by product name" like Stripe, and their
+  // amount is immutable once created - we find one by matching our own notes
+  // AND the current amount, so a pricingINR change creates a fresh plan
+  // instead of silently reusing an old one at the old price. Stale plans from
+  // previous price points are just left behind in Razorpay, harmless clutter.
   private async findOrCreatePlan(billing: Billing, period: Period) {
     const amount =
       period === 'MONTHLY'
@@ -227,7 +230,11 @@ export class RazorpayService {
 
     const existing = await razorpay.plans.all({ count: 100 });
     const found = (existing.items || []).find(
-      (p: any) => p.notes?.billing === billing && p.notes?.period === period
+      (p: any) =>
+        p.notes?.billing === billing &&
+        p.notes?.period === period &&
+        !p.notes?.newUserDiscount &&
+        p.item?.amount === amount * 100
     );
     if (found) {
       return found;
@@ -263,7 +270,8 @@ export class RazorpayService {
       (p: any) =>
         p.notes?.billing === billing &&
         p.notes?.period === period &&
-        p.notes?.newUserDiscount === 'true'
+        p.notes?.newUserDiscount === 'true' &&
+        p.item?.amount === amount * 100
     );
     if (found) {
       return found;
