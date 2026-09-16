@@ -13,6 +13,7 @@ import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions
 import {
   pricingINR,
   LIFETIME_PRO_PRICE_INR,
+  NEW_USER_DISCOUNT_PERCENT,
 } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 
 const razorpay = new Razorpay({
@@ -244,6 +245,42 @@ export class RazorpayService {
     });
   }
 
+  // New-user signup offer: Razorpay has no per-invoice coupon like Stripe, so
+  // the discount is a separate plan at the reduced amount - the subscription
+  // starts on this plan, then subscribe() schedules a change back to the
+  // full-price plan for cycle end, so only the first paid cycle is discounted.
+  private async findOrCreateDiscountedPlan(billing: Billing, period: Period) {
+    const fullAmount =
+      period === 'MONTHLY'
+        ? pricingINR[billing].month_price
+        : pricingINR[billing].year_price;
+    const amount = Math.round(
+      (fullAmount * (100 - NEW_USER_DISCOUNT_PERCENT)) / 100
+    );
+
+    const existing = await razorpay.plans.all({ count: 100 });
+    const found = (existing.items || []).find(
+      (p: any) =>
+        p.notes?.billing === billing &&
+        p.notes?.period === period &&
+        p.notes?.newUserDiscount === 'true'
+    );
+    if (found) {
+      return found;
+    }
+
+    return razorpay.plans.create({
+      period: period === 'MONTHLY' ? 'monthly' : 'yearly',
+      interval: 1,
+      item: {
+        name: `${billing} ${period} (new user offer)`,
+        amount: amount * 100, // paise
+        currency: 'INR',
+      },
+      notes: { billing, period, newUserDiscount: 'true' },
+    });
+  }
+
   async subscribe(
     uniqueId: string,
     organizationId: string,
@@ -285,8 +322,18 @@ export class RazorpayService {
       ? Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60
       : undefined;
 
+    // New-user signup offer applies alongside the trial (same `allowTrial`
+    // gate, which permanently flips false on this org's first subscription -
+    // see subscription.repository.ts - so this can't be replayed by
+    // cancelling and resubscribing). Subscription starts on the discounted
+    // plan; the change back to full price is scheduled for cycle end right
+    // after creation, so only the first paid cycle is discounted.
+    const initialPlan = allowTrial
+      ? await this.findOrCreateDiscountedPlan(body.billing, body.period)
+      : plan;
+
     const subscription = await razorpay.subscriptions.create({
-      plan_id: plan.id,
+      plan_id: initialPlan.id,
       total_count: TOTAL_COUNT[body.period],
       customer_notify: 1,
       ...(startAt ? { start_at: startAt } : {}),
@@ -300,6 +347,18 @@ export class RazorpayService {
         id,
       },
     });
+
+    if (allowTrial) {
+      try {
+        await razorpay.subscriptions.update(subscription.id, {
+          plan_id: plan.id,
+          schedule_change_at: 'cycle_end',
+        });
+      } catch (err) {
+        // Not fatal - worst case the discounted plan just keeps renewing at
+        // the discounted price, which fails safe (cheaper for us, not free).
+      }
+    }
 
     // Set immediately so cancel/lookup works even before the webhook lands.
     await this._subscriptionService.updateCustomerId(

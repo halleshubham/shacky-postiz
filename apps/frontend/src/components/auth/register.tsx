@@ -161,7 +161,8 @@ export function RegisterAfter({
                 <GoogleProvider />
               )}
               {!!neynarClientId && <FarcasterProvider />}
-              {billingEnabled && <WalletProvider />}
+              {/* Crypto wallet login disabled */}
+              {/* {billingEnabled && <WalletProvider />} */}
             </div>
           ))}
         {!isAfterProvider && (

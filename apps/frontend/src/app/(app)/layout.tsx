@@ -59,6 +59,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             process.env.DEFAULT_PAYMENT_PROVIDER === 'razorpay' ? 'inr' : 'usd'
           }
           razorpayKeyId={process.env.RAZORPAY_KEY_ID!}
+          newUserDiscountEnabled={
+            process.env.DEFAULT_PAYMENT_PROVIDER === 'razorpay'
+              ? !!process.env.RAZORPAY_KEY_ID
+              : !!process.env.STRIPE_NEW_USER_DISCOUNT_ID
+          }
           discordUrl={process.env.NEXT_PUBLIC_DISCORD_SUPPORT!}
           frontEndUrl={process.env.FRONTEND_URL!}
           isGeneral={!!process.env.IS_GENERAL}

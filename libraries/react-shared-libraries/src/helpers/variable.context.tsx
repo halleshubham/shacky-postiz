@@ -26,6 +26,7 @@ interface VariableContextInterface {
   sentryDsn: string;
   currency: 'usd' | 'inr';
   razorpayKeyId: string;
+  newUserDiscountEnabled: boolean;
 }
 const VariableContext = createContext({
   billingEnabled: false,
@@ -51,6 +52,7 @@ const VariableContext = createContext({
   sentryDsn: '',
   currency: 'usd',
   razorpayKeyId: '',
+  newUserDiscountEnabled: false,
 } as VariableContextInterface);
 export const VariableContextComponent: FC<
   VariableContextInterface & {

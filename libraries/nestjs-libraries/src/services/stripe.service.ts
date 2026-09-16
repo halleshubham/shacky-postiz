@@ -371,6 +371,16 @@ export class StripeService {
     allowTrial: boolean
   ) {
     const isUtm = body.utm ? `&utm_source=${body.utm}` : '';
+    // New-user signup offer: 30% off the first invoice only, for orgs that
+    // have never had a subscription (allowTrial). The coupon must be created
+    // in Stripe with `duration: 'once'` so it doesn't carry into later
+    // cycles. `discounts` and `allow_promotion_codes` can't both be set on a
+    // Checkout Session, so applying this automatically means turning the
+    // promo-code box off for that checkout.
+    const newUserDiscount =
+      allowTrial && process.env.STRIPE_NEW_USER_DISCOUNT_ID
+        ? { coupon: process.env.STRIPE_NEW_USER_DISCOUNT_ID }
+        : undefined;
     const { url } = await stripe.checkout.sessions.create({
       customer,
       cancel_url: process.env['FRONTEND_URL'] + `/billing?cancel=true${isUtm}`,
@@ -395,7 +405,9 @@ export class StripeService {
             },
           }
         : {}),
-      allow_promotion_codes: body.period === 'MONTHLY',
+      ...(newUserDiscount
+        ? { discounts: [newUserDiscount] }
+        : { allow_promotion_codes: body.period === 'MONTHLY' }),
       line_items: [
         {
           price,

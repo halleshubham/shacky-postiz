@@ -69,7 +69,8 @@ export function Login() {
           <div className="gap-[5px] flex flex-col">
             <GoogleProvider />
             {!!neynarClientId && <FarcasterProvider />}
-            {billingEnabled && <WalletProvider />}
+            {/* Crypto wallet login disabled */}
+            {/* {billingEnabled && <WalletProvider />} */}
           </div>
         )}
         <div className="h-[20px] mb-[24px] mt-[24px] relative">

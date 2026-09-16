@@ -12,7 +12,10 @@ import { useToaster } from '@gitroom/react/toaster/toaster';
 import dayjs from 'dayjs';
 import clsx from 'clsx';
 import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
-import { pricingINR } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
+import {
+  pricingINR,
+  NEW_USER_DISCOUNT_PERCENT,
+} from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 import { FAQComponent } from '@gitroom/frontend/components/billing/faq.component';
 import { useSWRConfig } from 'swr';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
@@ -233,7 +236,8 @@ export const MainBillingComponent: FC<{
   sub?: Subscription;
 }> = (props) => {
   const { sub } = props;
-  const { isGeneral, currency, razorpayKeyId } = useVariables();
+  const { isGeneral, currency, razorpayKeyId, newUserDiscountEnabled } =
+    useVariables();
   const currencySymbol = currency === 'inr' ? '₹' : '$';
   const getPrice = useCallback(
     (tier: string, period: 'month_price' | 'year_price') => {
@@ -516,19 +520,38 @@ export const MainBillingComponent: FC<{
       <div className="flex gap-[16px] [@media(max-width:1024px)]:flex-col [@media(max-width:1024px)]:text-center">
         {Object.entries(pricing)
           .filter((f) => !isGeneral || f[0] !== 'FREE')
-          .map(([name, values]) => (
+          .map(([name, values]) => {
+            const fullPrice = getPrice(
+              name,
+              monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
+            );
+            const isNewUserOffer =
+              !!user?.allowTrial && newUserDiscountEnabled && name !== 'FREE';
+            const discountedPrice = Math.round(
+              (fullPrice * (100 - NEW_USER_DISCOUNT_PERCENT)) / 100
+            );
+            return (
             <div
               key={name}
-              className="flex-1 bg-sixth border border-customColor6 rounded-[4px] p-[24px] gap-[16px] flex flex-col [@media(max-width:1024px)]:items-center"
+              className="flex-1 bg-sixth border border-customColor6 rounded-[4px] p-[24px] gap-[16px] flex flex-col [@media(max-width:1024px)]:items-center relative"
             >
+              {isNewUserOffer && (
+                <div className="absolute -top-[10px] end-[16px] bg-emerald-500 text-white text-[11px] font-semibold px-[10px] py-[3px] rounded-full">
+                  {t('new_user_offer', 'New User Offer')} -{' '}
+                  {NEW_USER_DISCOUNT_PERCENT}% {t('off_first_cycle', 'off first cycle')}
+                </div>
+              )}
               <div className="text-[18px]">{name}</div>
-              <div className="text-[38px] flex gap-[2px] items-center">
+              <div className="text-[38px] flex gap-[6px] items-center">
+                {isNewUserOffer && (
+                  <div className="text-[18px] text-customColor18 line-through">
+                    {currencySymbol}
+                    {fullPrice}
+                  </div>
+                )}
                 <div>
                   {currencySymbol}
-                  {getPrice(
-                    name,
-                    monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
-                  )}
+                  {isNewUserOffer ? discountedPrice : fullPrice}
                 </div>
                 <div className={`text-[14px] text-customColor18`}>
                   {monthlyOrYearly === 'on' ? '/year' : '/month'}
@@ -598,7 +621,8 @@ export const MainBillingComponent: FC<{
                 pack={name.toUpperCase() as 'FREE' | 'STANDARD' | 'PRO'}
               />
             </div>
-          ))}
+            );
+          })}
       </div>
       {!subscription?.id && <PurchaseLifetimeRazorpay />}
       {!!subscription?.id && (
