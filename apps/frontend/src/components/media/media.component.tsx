@@ -37,6 +37,7 @@ import {
 import { useLaunchStore } from '@gitroom/frontend/components/new-launch/store';
 import { AiVideo } from '@gitroom/frontend/components/launches/ai.video';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 const Polonto = dynamic(
   () => import('@gitroom/frontend/components/launches/polonto')
 );
@@ -569,6 +570,7 @@ export const MultiMediaComponent: FC<{
   } = props;
   const user = useUser();
   const modals = useModals();
+  const { aiVideoGenerationEnabled } = useVariables();
   useEffect(() => {
     if (value) {
       setCurrentMedia(value);
@@ -789,7 +791,9 @@ export const MultiMediaComponent: FC<{
               {!!user?.tier?.ai && (
                 <>
                   <AiImage value={text} onChange={changeMedia} />
-                  <AiVideo value={text} onChange={changeMedia} />
+                  {aiVideoGenerationEnabled && (
+                    <AiVideo value={text} onChange={changeMedia} />
+                  )}
                 </>
               )}
             </div>

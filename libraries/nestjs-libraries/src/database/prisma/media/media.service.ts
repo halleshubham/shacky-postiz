@@ -12,6 +12,7 @@ import {
   Sections,
   SubscriptionException,
 } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
+import { AI_VIDEO_GENERATION_ENABLED } from '@gitroom/nestjs-libraries/videos/video.config';
 
 @Injectable()
 export class MediaService {
@@ -69,6 +70,13 @@ export class MediaService {
   }
 
   async generateVideoAllowed(org: Organization, type: string) {
+    // AI video generation disabled - see video.config.ts. getVideoByName()
+    // reads raw provider metadata directly (unlike getAllVideos()), so this
+    // check can't be skipped just because the options list is already empty.
+    if (!AI_VIDEO_GENERATION_ENABLED) {
+      throw new HttpException('AI video generation is currently disabled', 403);
+    }
+
     const video = this._videoManager.getVideoByName(type);
     if (!video) {
       throw new Error(`Video type ${type} not found`);
@@ -82,6 +90,11 @@ export class MediaService {
   }
 
   async generateVideo(org: Organization, body: VideoDto) {
+    // AI video generation disabled - see video.config.ts
+    if (!AI_VIDEO_GENERATION_ENABLED) {
+      throw new HttpException('AI video generation is currently disabled', 403);
+    }
+
     const totalCredits = await this._subscriptionService.checkCredits(
       org,
       'ai_videos'

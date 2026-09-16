@@ -64,6 +64,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               ? !!process.env.RAZORPAY_KEY_ID
               : !!process.env.STRIPE_NEW_USER_DISCOUNT_ID
           }
+          aiVideoGenerationEnabled={
+            process.env.AI_VIDEO_GENERATION_ENABLED === 'true'
+          }
           discordUrl={process.env.NEXT_PUBLIC_DISCORD_SUPPORT!}
           frontEndUrl={process.env.FRONTEND_URL!}
           isGeneral={!!process.env.IS_GENERAL}

@@ -103,6 +103,7 @@ export const Features: FC<{
   pack: 'FREE' | 'STANDARD' | 'PRO';
 }> = (props) => {
   const { pack } = props;
+  const { aiVideoGenerationEnabled } = useVariables();
   const features = useMemo(() => {
     const currentPricing = pricing[pack];
     const channelsOr = currentPricing.channel;
@@ -129,11 +130,11 @@ export const Features: FC<{
         `${currentPricing?.image_generation_count} AI Images per month`
       );
     }
-    if (currentPricing?.generate_videos) {
+    if (currentPricing?.generate_videos && aiVideoGenerationEnabled) {
       list.push(`${currentPricing?.generate_videos} AI Videos per month`);
     }
     return list;
-  }, [pack]);
+  }, [pack, aiVideoGenerationEnabled]);
   return (
     <div className="flex flex-col gap-[10px] justify-center text-[16px] text-customColor18">
       {features.map((feature) => (

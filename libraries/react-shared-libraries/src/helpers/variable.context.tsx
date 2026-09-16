@@ -27,6 +27,7 @@ interface VariableContextInterface {
   currency: 'usd' | 'inr';
   razorpayKeyId: string;
   newUserDiscountEnabled: boolean;
+  aiVideoGenerationEnabled: boolean;
 }
 const VariableContext = createContext({
   billingEnabled: false,
@@ -53,6 +54,7 @@ const VariableContext = createContext({
   currency: 'usd',
   razorpayKeyId: '',
   newUserDiscountEnabled: false,
+  aiVideoGenerationEnabled: false,
 } as VariableContextInterface);
 export const VariableContextComponent: FC<
   VariableContextInterface & {
