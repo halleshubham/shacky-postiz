@@ -38,6 +38,21 @@ type SubscriptionWithPlatform = Subscription & {
   platform?: 'web' | 'mobile';
 };
 
+// Razorpay's hosted subscription short_url has no callback/success URL, so
+// upgrades/new signups go through Razorpay Checkout embedded on this page
+// instead - this loads its script once, lazily, only when actually needed.
+const loadRazorpayCheckout = () =>
+  new Promise<boolean>((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
 
 export const Prorate: FC<{
   period: 'MONTHLY' | 'YEARLY';
@@ -226,7 +241,7 @@ export const MainBillingComponent: FC<{
   sub?: SubscriptionWithPlatform;
 }> = (props) => {
   const { sub } = props;
-  const { isGeneral, currency, newUserDiscountEnabled } =
+  const { isGeneral, currency, newUserDiscountEnabled, razorpayKeyId } =
     useVariables();
   const currencySymbol = currency === 'inr' ? '₹' : '$';
   const getPrice = useCallback(
@@ -404,17 +419,18 @@ export const MainBillingComponent: FC<{
           return;
         }
         setLoading(true);
-        const { url, portal, blocked } = await (
-          await fetch('/billing/subscribe', {
-            method: 'POST',
-            body: JSON.stringify({
-              period: monthlyOrYearly === 'on' ? 'YEARLY' : 'MONTHLY',
-              utm,
-              billing,
-              ...(dub ? { dub } : {}),
-            }),
-          })
-        ).json();
+        const { url, portal, blocked, razorpaySubscriptionId, checkId } =
+          await (
+            await fetch('/billing/subscribe', {
+              method: 'POST',
+              body: JSON.stringify({
+                period: monthlyOrYearly === 'on' ? 'YEARLY' : 'MONTHLY',
+                utm,
+                billing,
+                ...(dub ? { dub } : {}),
+              }),
+            })
+          ).json();
         if (blocked) {
           setLoading(false);
           await deleteDialog(
@@ -435,6 +451,37 @@ export const MainBillingComponent: FC<{
             ),
           });
           window.location.href = url;
+          return;
+        }
+        if (razorpaySubscriptionId) {
+          await track(TrackEnum.InitiateCheckout, {
+            value: getPrice(
+              billing,
+              monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
+            ),
+          });
+          const loaded = await loadRazorpayCheckout();
+          if (!loaded) {
+            toast.show(
+              'Could not load the payment form, please try again',
+              'warning'
+            );
+            setLoading(false);
+            return;
+          }
+          const razorpayCheckout = new (window as any).Razorpay({
+            key: razorpayKeyId,
+            subscription_id: razorpaySubscriptionId,
+            name: isGeneral ? 'Postiz' : 'Gitroom',
+            prefill: { email: user?.email },
+            handler: () => {
+              window.location.href = `/launches?onboarding=true&check=${checkId}`;
+            },
+            modal: {
+              ondismiss: () => setLoading(false),
+            },
+          });
+          razorpayCheckout.open();
           return;
         }
         if (portal) {

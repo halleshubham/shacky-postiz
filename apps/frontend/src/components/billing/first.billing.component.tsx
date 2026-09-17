@@ -42,8 +42,25 @@ const ModeComponent = dynamic(
   }
 );
 
+// Razorpay's hosted subscription short_url has no callback/success URL, so
+// checkout goes through Razorpay Checkout embedded on this page instead -
+// this loads its script once, lazily, only when actually needed.
+const loadRazorpayCheckout = () =>
+  new Promise<boolean>((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+
 export const FirstBillingComponent = () => {
-  const { currency, newUserDiscountEnabled } = useVariables();
+  const { currency, newUserDiscountEnabled, razorpayKeyId, isGeneral } =
+    useVariables();
   const currencySymbol = currency === 'inr' ? '₹' : '$';
   const user = useUser();
   const dub = useDubClickId();
@@ -71,7 +88,7 @@ export const FirstBillingComponent = () => {
 
   const startCheckout = useCallback(async () => {
     setLoading(true);
-    const { url, blocked } = await (
+    const { url, blocked, razorpaySubscriptionId, checkId } = await (
       await fetch('/billing/subscribe', {
         method: 'POST',
         body: JSON.stringify({
@@ -99,6 +116,31 @@ export const FirstBillingComponent = () => {
         value: getPrice(tier, period === 'YEARLY' ? 'year_price' : 'month_price'),
       });
       window.location.href = url;
+      return;
+    }
+    if (razorpaySubscriptionId) {
+      await track(TrackEnum.InitiateCheckout, {
+        value: getPrice(tier, period === 'YEARLY' ? 'year_price' : 'month_price'),
+      });
+      const loaded = await loadRazorpayCheckout();
+      if (!loaded) {
+        toast.show('Could not load the payment form, please try again', 'warning');
+        setLoading(false);
+        return;
+      }
+      const razorpayCheckout = new (window as any).Razorpay({
+        key: razorpayKeyId,
+        subscription_id: razorpaySubscriptionId,
+        name: isGeneral ? 'Postiz' : 'Gitroom',
+        prefill: { email: user?.email },
+        handler: () => {
+          window.location.href = `/launches?onboarding=true&check=${checkId}`;
+        },
+        modal: {
+          ondismiss: () => setLoading(false),
+        },
+      });
+      razorpayCheckout.open();
       return;
     }
     setLoading(false);

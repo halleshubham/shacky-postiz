@@ -103,10 +103,11 @@ export class RazorpayProvider extends PaymentProviderAbstract {
   }
 
   private async upsertSubscription(entity: any) {
-    const { billing, period, organizationId } = entity.notes as {
+    const { billing, period, organizationId, id } = entity.notes as {
       billing: Billing;
       period: Period;
       organizationId: string;
+      id: string;
     };
 
     if (!organizationId || !billing || !period) {
@@ -126,7 +127,10 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       isTrailing,
       organizationId,
       RAZORPAY_PROVIDER,
-      makeId(10),
+      // Must be the same `id` `subscribe()` put in notes and handed back to
+      // the frontend as `checkId` - checkSubscription() below matches on it
+      // to tell the post-checkout poll the webhook has landed.
+      id || makeId(10),
       pricing[billing].channel || 0,
       billing,
       period,
@@ -297,7 +301,12 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       subscription.id
     );
 
-    return { url: subscription.short_url };
+    // Razorpay's hosted short_url page has no callback/success URL (unlike
+    // Stripe Checkout Sessions or Razorpay Payment Links) - the frontend
+    // embeds Razorpay Checkout instead, using razorpaySubscriptionId to open
+    // it and checkId to poll /billing/check/:id afterwards, same as Stripe's
+    // checkout-session flow's `check=${uniqueId}` redirect.
+    return { razorpaySubscriptionId: subscription.id, checkId: id };
   }
 
   // Razorpay's hosted short_url page has no upcoming-invoice preview like
@@ -447,17 +456,34 @@ export class RazorpayProvider extends PaymentProviderAbstract {
     return { ok: true };
   }
 
-  override async checkSubscription(
-    organizationId: string,
-    subscriptionId: string
-  ) {
-    const org = await this._organizationService.getOrgById(organizationId);
-    if (org?.paymentId !== subscriptionId) {
-      return { active: false };
+  // Called by the post-checkout poll (CheckPayment component) with the same
+  // local `checkId` returned from subscribe() - NOT a Razorpay id. Contract
+  // matches StripeService.checkSubscription: 0 keep polling, 1 failed,
+  // 2 succeeded.
+  override async checkSubscription(organizationId: string, checkId: string) {
+    const orgValue = await this._subscriptionService.checkSubscription(
+      organizationId,
+      checkId
+    );
+    if (orgValue) {
+      return 2;
     }
 
-    const subscription = await razorpay.subscriptions.fetch(subscriptionId);
-    return { active: subscription.status === 'active' };
+    const org = await this._organizationService.getOrgById(organizationId);
+    if (!org?.paymentId) {
+      return 0;
+    }
+
+    try {
+      const subscription = await razorpay.subscriptions.fetch(org.paymentId);
+      if (['cancelled', 'expired', 'completed'].includes(subscription.status)) {
+        return 1;
+      }
+    } catch (err) {
+      return 0;
+    }
+
+    return 0;
   }
 
   // Razorpay has no hosted self-service portal equivalent to Stripe's.
