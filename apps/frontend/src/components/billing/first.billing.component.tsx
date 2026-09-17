@@ -1,10 +1,8 @@
 'use client';
 
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
-import useSWR from 'swr';
+import React, { FC, useCallback, useMemo, useState } from 'react';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
-import { loadStripe, Stripe } from '@stripe/stripe-js';
 import { OrganizationSelector } from '@gitroom/frontend/components/layout/organization.selector';
 import { LanguageComponent } from '@gitroom/frontend/components/layout/language.component';
 import { AttachToFeedbackIcon } from '@gitroom/frontend/components/new-layout/sentry.feedback.component';
@@ -12,9 +10,13 @@ import NotificationComponent from '@gitroom/frontend/components/notifications/no
 import dynamic from 'next/dynamic';
 import { LogoTextComponent } from '@gitroom/frontend/components/ui/logo-text.component';
 import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
+import {
+  pricingINR,
+  NEW_USER_DISCOUNT_PERCENT,
+} from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 import { capitalize } from 'lodash';
 import clsx from 'clsx';
-import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
+import { Button } from '@gitroom/react/form/button';
 import { CheckIconComponent } from '@gitroom/frontend/components/ui/check.icon.component';
 import {
   FAQComponent,
@@ -23,9 +25,13 @@ import {
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { useDubClickId } from '@gitroom/frontend/components/layout/dubAnalytics';
+import { useUtmUrl } from '@gitroom/helpers/utils/utm.saver';
+import { useTrack } from '@gitroom/react/helpers/use.track';
+import { TrackEnum } from '@gitroom/nestjs-libraries/user/track.enum';
+import { useToaster } from '@gitroom/react/toaster/toaster';
+import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import SafeImage from '@gitroom/react/helpers/safe.image';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
-import useCookie from 'react-use-cookie';
 import { LogoutComponent } from '@gitroom/frontend/components/layout/logout.component';
 import { DeveloperIconComponent } from '@gitroom/frontend/components/developer/developer.icon.component';
 
@@ -36,48 +42,68 @@ const ModeComponent = dynamic(
   }
 );
 
-const EmbeddedBilling = dynamic(
-  () =>
-    import('@gitroom/frontend/components/billing/embedded.billing').then(
-      (mod) => mod.EmbeddedBilling
-    ),
-  {
-    ssr: false,
-  }
-);
-
 export const FirstBillingComponent = () => {
-  const { stripeClient } = useVariables();
+  const { currency, newUserDiscountEnabled } = useVariables();
+  const currencySymbol = currency === 'inr' ? '₹' : '$';
   const user = useUser();
   const dub = useDubClickId();
-  const [stripe, setStripe] = useState<null | Promise<Stripe>>(null);
+  const utm = useUtmUrl();
+  const track = useTrack();
+  const toast = useToaster();
   const [tier, setTier] = useState('STANDARD');
-  const [period, setPeriod] = useState('MONTHLY');
+  const [period, setPeriod] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
+  const [loading, setLoading] = useState(false);
   const fetch = useFetch();
   const modals = useModals();
   const t = useT();
-  const [datafast_visitor_id] = useCookie('datafast_visitor_id', '');
-  const [datafast_session_id] = useCookie('datafast_session_id', '');
 
-  useEffect(() => {
-    setStripe(loadStripe(stripeClient));
-  }, []);
+  const getPrice = useCallback(
+    (key: string, p: 'month_price' | 'year_price') => {
+      if (currency === 'inr' && key in pricingINR) {
+        return pricingINR[key as keyof typeof pricingINR][p];
+      }
+      return pricing[key][p];
+    },
+    [currency]
+  );
 
-  const loadCheckout = useCallback(async () => {
-    return (
-      await fetch('/billing/embedded', {
+  const isNewUserOffer = !!user?.allowTrial && newUserDiscountEnabled;
+
+  const startCheckout = useCallback(async () => {
+    setLoading(true);
+    const { url, blocked } = await (
+      await fetch('/billing/subscribe', {
         method: 'POST',
         body: JSON.stringify({
+          period,
           billing: tier,
-          period: period,
-          ...(datafast_visitor_id && datafast_session_id
-            ? { datafast_visitor_id, datafast_session_id }
-            : {}),
+          utm,
           ...(dub ? { dub } : {}),
         }),
       })
     ).json();
-  }, [tier, period]);
+    if (blocked) {
+      setLoading(false);
+      await deleteDialog(
+        t(
+          'billing_other_account_subscribed',
+          'Another account with this email already has an active subscription. Please log off and sign in to that account to manage your subscription.'
+        ),
+        t('ok', 'OK'),
+        t('already_subscribed', 'Already subscribed')
+      );
+      return;
+    }
+    if (url) {
+      await track(TrackEnum.InitiateCheckout, {
+        value: getPrice(tier, period === 'YEARLY' ? 'year_price' : 'month_price'),
+      });
+      window.location.href = url;
+      return;
+    }
+    setLoading(false);
+    toast.show('Something went wrong, please try again', 'warning');
+  }, [tier, period, utm, dub, getPrice]);
 
   const showYouTube = () => {
     modals.openModal({
@@ -93,18 +119,6 @@ export const FirstBillingComponent = () => {
       ),
     });
   };
-
-  const { data, isLoading } = useSWR(
-    `/billing-${tier}-${period}`,
-    loadCheckout,
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      revalidateIfStale: false,
-      refreshWhenOffline: false,
-      refreshWhenHidden: false,
-    }
-  );
 
   const price = useMemo(
     () => Object.entries(pricing).filter(([key, value]) => key !== 'FREE'),
@@ -205,23 +219,50 @@ export const FirstBillingComponent = () => {
           <div className="block tablet:hidden">
             <JoinOver />
           </div>
-          {data?.blocked ? (
-            <div className="mt-[24px] p-[24px] rounded-[20px] border-[1.5px] border-newColColor text-[16px] font-[500]">
-              {t(
-                'billing_other_account_subscribed',
-                'Another account with this email already has an active subscription. Please log off and sign in to that account to manage your subscription.'
-              )}
+          <div className="mt-[24px] p-[24px] rounded-[20px] border-[1.5px] border-newColColor flex flex-col gap-[16px]">
+            <div className="flex items-center justify-between">
+              <div className="text-[18px] font-[600]">{capitalize(tier)}</div>
+              <div className="flex gap-[6px] items-center">
+                {isNewUserOffer && (
+                  <div className="text-[16px] text-customColor18 line-through">
+                    {currencySymbol}
+                    {getPrice(tier, period === 'YEARLY' ? 'year_price' : 'month_price')}
+                  </div>
+                )}
+                <div className="text-[28px] font-[700]">
+                  {currencySymbol}
+                  {isNewUserOffer
+                    ? Math.round(
+                        (getPrice(
+                          tier,
+                          period === 'YEARLY' ? 'year_price' : 'month_price'
+                        ) *
+                          (100 - NEW_USER_DISCOUNT_PERCENT)) /
+                          100
+                      )
+                    : getPrice(
+                        tier,
+                        period === 'YEARLY' ? 'year_price' : 'month_price'
+                      )}
+                </div>
+                <div className="text-[14px] text-customColor18">
+                  {period === 'YEARLY' ? '/year' : '/month'}
+                </div>
+              </div>
             </div>
-          ) : !isLoading && data && stripe ? (
-            <EmbeddedBilling
-              stripe={stripe}
-              secret={data.client_secret}
-              showCoupon={period === 'MONTHLY'}
-              autoApplyCoupon={data.auto_apply_coupon}
-            />
-          ) : (
-            <LoadingComponent />
-          )}
+            {isNewUserOffer && (
+              <div className="text-[13px] text-emerald-500 font-[600]">
+                {t('new_user_offer', 'New User Offer')} -{' '}
+                {NEW_USER_DISCOUNT_PERCENT}%{' '}
+                {t('off_first_cycle', 'off first cycle')}
+              </div>
+            )}
+            <Button loading={loading} onClick={startCheckout}>
+              {user?.allowTrial
+                ? t('start_7_days_free_trial', 'Start 7 days free trial')
+                : t('billing_purchase', 'Purchase')}
+            </Button>
+          </div>
         </div>
         <div className="flex flex-col ps-[40px] tablet:!ps-[0] border-l border-newColColor py-[40px] mobile:!pt-[24px] tablet:border-none tablet:pb-0">
           <div className="top-[20px] sticky">
@@ -261,38 +302,34 @@ export const FirstBillingComponent = () => {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-[8px] mobile:!grid-cols-2 tablet:grid-cols-4">
-              {price.map(
-                ([key, value]) => (
-                  <div
-                    onClick={() => setTier(key)}
-                    key={key}
-                    className={clsx(
-                      'cursor-pointer select-none w-[266px] h-[138px] tablet:w-full tablet:h-[124px] p-[24px] tablet:p-[15px] rounded-[20px] flex flex-col',
-                      key === tier
-                        ? 'border-[1.5px] border-[#618DFF]'
-                        : 'border-[1.5px] border-newColColor'
-                    )}
-                  >
-                    <div className="text-[20px] mobile:text-[18px] font-[500]">
-                      {capitalize(key)}
-                    </div>
-                    <div className="text-[24px] mobile:text-[18px] font-[400]">
-                      <span className="text-[44px] mobile:text-[30px] font-[600]">
-                        $
-                        {
-                          value[
-                            period === 'MONTHLY' ? 'month_price' : 'year_price'
-                          ]
-                        }
-                      </span>{' '}
-                      {period === 'MONTHLY'
-                        ? t('billing_per_month', '/ month')
-                        : t('billing_per_year', '/ year')}
-                    </div>
+              {price.map(([key]) => (
+                <div
+                  onClick={() => setTier(key)}
+                  key={key}
+                  className={clsx(
+                    'cursor-pointer select-none w-[266px] h-[138px] tablet:w-full tablet:h-[124px] p-[24px] tablet:p-[15px] rounded-[20px] flex flex-col',
+                    key === tier
+                      ? 'border-[1.5px] border-[#618DFF]'
+                      : 'border-[1.5px] border-newColColor'
+                  )}
+                >
+                  <div className="text-[20px] mobile:text-[18px] font-[500]">
+                    {capitalize(key)}
                   </div>
-                ),
-                []
-              )}
+                  <div className="text-[24px] mobile:text-[18px] font-[400]">
+                    <span className="text-[44px] mobile:text-[30px] font-[600]">
+                      {currencySymbol}
+                      {getPrice(
+                        key,
+                        period === 'MONTHLY' ? 'month_price' : 'year_price'
+                      )}
+                    </span>{' '}
+                    {period === 'MONTHLY'
+                      ? t('billing_per_month', '/ month')
+                      : t('billing_per_year', '/ year')}
+                  </div>
+                </div>
+              ))}
             </div>
             <div className="flex flex-col mt-[54px] gap-[24px] tablet:mt-[40px]">
               <div className="text-[24px] font-[700]">
