@@ -294,6 +294,31 @@ export class SubscriptionService {
     return this._subscriptionRepository.getSubscriptionByIdentifier(identifier);
   }
 
+  // One-time lifetime purchase (as opposed to a redeemed promo code, which
+  // goes through the generic lifetimeDeal(organizationId, code) contract on
+  // PaymentProviderAbstract) - the repository marks a subscription lifetime
+  // whenever a truthy "code" is passed, so `identifier` (the order/payment
+  // id) doubles as that marker here.
+  async lifeTime(
+    organizationId: string,
+    provider: string,
+    identifier: string,
+    billing: 'STANDARD' | 'TEAM' | 'PRO' | 'ULTIMATE'
+  ) {
+    return this._subscriptionRepository.createOrUpdateSubscription(
+      provider,
+      false,
+      identifier,
+      '',
+      pricing[billing].channel || 0,
+      billing,
+      'MONTHLY',
+      null,
+      identifier,
+      { id: organizationId }
+    );
+  }
+
   async getSubscription(organizationId: string) {
     return this._subscriptionRepository.getSubscription(organizationId);
   }

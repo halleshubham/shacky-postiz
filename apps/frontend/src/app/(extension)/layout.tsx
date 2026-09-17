@@ -33,7 +33,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           environment={process.env.NODE_ENV!}
           backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL!}
           plontoKey={process.env.NEXT_PUBLIC_POLOTNO!}
-          billingEnabled={!!process.env.STRIPE_PUBLISHABLE_KEY}
+          billingEnabled={
+            !!process.env.STRIPE_PUBLISHABLE_KEY || !!process.env.RAZORPAY_KEY_ID
+          }
+          currency={
+            process.env.DEFAULT_WEB_PAYMENT_PROVIDER === 'razorpay' ? 'inr' : 'usd'
+          }
+          razorpayKeyId={process.env.RAZORPAY_KEY_ID!}
+          newUserDiscountEnabled={
+            process.env.DEFAULT_WEB_PAYMENT_PROVIDER === 'razorpay'
+              ? !!process.env.RAZORPAY_KEY_ID
+              : !!process.env.STRIPE_NEW_USER_DISCOUNT_ID
+          }
+          aiVideoGenerationEnabled={
+            process.env.AI_VIDEO_GENERATION_ENABLED === 'true'
+          }
           discordUrl={process.env.NEXT_PUBLIC_DISCORD_SUPPORT!}
           frontEndUrl={process.env.FRONTEND_URL!}
           isGeneral={!!process.env.IS_GENERAL}

@@ -5,6 +5,7 @@ import {
   VideoAbstract,
   VideoParams,
 } from '@gitroom/nestjs-libraries/videos/video.interface';
+import { AI_VIDEO_GENERATION_ENABLED } from '@gitroom/nestjs-libraries/videos/video.config';
 
 @Injectable()
 export class VideoManager {
@@ -20,6 +21,11 @@ export class VideoManager {
     placement: string;
     trial: boolean;
   }[] {
+    // AI video generation disabled - see video.config.ts
+    if (!AI_VIDEO_GENERATION_ENABLED) {
+      return [];
+    }
+
     return (Reflect.getMetadata('video', VideoAbstract) || [])
       .filter((f: any) => f.available)
       .map((p: any) => ({

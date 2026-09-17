@@ -34,6 +34,7 @@ import { ReactSortable } from 'react-sortablejs';
 import { MediaComponentInner } from '@gitroom/frontend/components/launches/helpers/media.settings.component';
 import { AiVideo } from '@gitroom/frontend/components/launches/ai.video';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { ThirdPartyMediaLibrary } from '@gitroom/frontend/components/third-parties/third-party.media-library';
 import { Dashboard } from '@uppy/react';
 import {
@@ -681,6 +682,7 @@ export const MultiMediaComponent: FC<{
   const user = useUser();
   const modals = useModals();
   const t = useT();
+  const { aiVideoGenerationEnabled } = useVariables();
   useEffect(() => {
     if (value) {
       setCurrentMedia(value);
@@ -860,7 +862,9 @@ export const MultiMediaComponent: FC<{
               {!!user?.tier?.ai && (
                 <>
                   <AiImage value={text} onChange={changeMedia} />
-                  <AiVideo value={text} onChange={changeMedia} />
+                  {aiVideoGenerationEnabled && (
+                    <AiVideo value={text} onChange={changeMedia} />
+                  )}
                 </>
               )}
             </div>

@@ -563,6 +563,20 @@ export class StripeService extends PaymentProviderAbstract {
     }
 
     const isUtm = body.utm ? `&utm_source=${body.utm}` : '';
+    // New-user signup offer: a discount on the first invoice only, for orgs
+    // that have never had a subscription (allowTrial - flips false for good
+    // on this org's first subscription, so it can't be replayed by
+    // cancelling and resubscribing). The coupon must be created in Stripe
+    // with `duration: 'once'` so it doesn't carry into later cycles.
+    // `discounts` and `allow_promotion_codes` can't both be set on a
+    // Checkout Session, so applying this automatically means turning the
+    // promo-code box off for that checkout - the site-wide auto-apply promo
+    // above only fires for monthly plans anyway, so this takes priority when
+    // both could apply.
+    const newUserDiscount =
+      allowTrial && process.env.STRIPE_NEW_USER_DISCOUNT_ID
+        ? { coupon: process.env.STRIPE_NEW_USER_DISCOUNT_ID }
+        : undefined;
     const { client_secret } = await stripe.checkout.sessions.create({
       ui_mode: 'custom',
       customer,
@@ -588,7 +602,9 @@ export class StripeService extends PaymentProviderAbstract {
             },
           }
         : {}),
-      allow_promotion_codes: body.period === 'MONTHLY',
+      ...(newUserDiscount
+        ? { discounts: [newUserDiscount] }
+        : { allow_promotion_codes: body.period === 'MONTHLY' }),
       line_items: [
         {
           price,

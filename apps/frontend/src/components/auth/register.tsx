@@ -178,7 +178,8 @@ export function RegisterAfter({
                   )}
                   {!!appleClientId && <AppleProvider />}
                   {!!neynarClientId && <FarcasterProvider />}
-                  {billingEnabled && <WalletProvider />}
+                  {/* Crypto wallet login disabled */}
+                  {/* {billingEnabled && <WalletProvider />} */}
                 </div>
               ))}
             {!isAfterProvider && (

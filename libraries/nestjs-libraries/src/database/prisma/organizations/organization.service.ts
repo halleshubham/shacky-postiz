@@ -110,7 +110,9 @@ export class OrganizationService {
     const tier =
       // @ts-ignore
       org?.subscription?.subscriptionTier ||
-      (!process.env.STRIPE_PUBLISHABLE_KEY ? 'ULTIMATE' : 'FREE');
+      (!process.env.STRIPE_PUBLISHABLE_KEY && !process.env.RAZORPAY_KEY_ID
+        ? 'ULTIMATE'
+        : 'FREE');
 
     if (!pricing[tier].team_members) {
       throw new HttpException(

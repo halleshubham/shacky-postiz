@@ -34,6 +34,10 @@ interface VariableContextInterface {
   extensionId: string;
   googleAdsId?: string;
   googleAdsTrialTracking?: string;
+  currency: 'usd' | 'inr';
+  razorpayKeyId: string;
+  newUserDiscountEnabled: boolean;
+  aiVideoGenerationEnabled: boolean;
 }
 const VariableContext = createContext({
   stripeClient: '',
@@ -67,6 +71,10 @@ const VariableContext = createContext({
   mediaProcessing: false,
   sentryDsn: '',
   extensionId: '',
+  currency: 'usd',
+  razorpayKeyId: '',
+  newUserDiscountEnabled: false,
+  aiVideoGenerationEnabled: false,
 } as VariableContextInterface);
 export const VariableContextComponent: FC<
   VariableContextInterface & {

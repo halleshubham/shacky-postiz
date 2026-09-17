@@ -20,6 +20,7 @@ import { AuthService } from '@gitroom/helpers/auth/auth.service';
 import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/users.service';
 import { PaymentService } from '@gitroom/nestjs-libraries/services/payment/payment.service';
 import { BillingSyncDto } from '@gitroom/nestjs-libraries/dtos/billing/billing.sync.dto';
+import { RazorpayProvider } from '@gitroom/nestjs-libraries/services/payment/providers/razorpay.provider';
 
 @ApiTags('Billing')
 @Controller('/billing')
@@ -28,7 +29,8 @@ export class BillingController {
     private _subscriptionService: SubscriptionService,
     private _notificationService: NotificationService,
     private _usersService: UsersService,
-    private _paymentService: PaymentService
+    private _paymentService: PaymentService,
+    private _razorpayProvider: RazorpayProvider
   ) {}
 
   // Billing routes are the web platform; the org's own provider (or the web
@@ -57,6 +59,9 @@ export class BillingController {
 
   @Get('/check-discount')
   async checkDiscount(@GetOrgFromRequest() org: Organization) {
+    // Razorpay has no pre-created "retention offer" set up - checkDiscount()
+    // isn't overridden on RazorpayProvider, so this already resolves to the
+    // abstract base's `false` default for those orgs.
     return {
       offerCoupon: !(await (await this.provider(org)).checkDiscount(org))
         ? false
@@ -301,5 +306,23 @@ export class BillingController {
       body.subscription,
       this._paymentService.getDefaultProviderName('web')
     );
+  }
+
+  @Post('/lifetime/razorpay/order')
+  async createLifetimeRazorpayOrder(@GetOrgFromRequest() org: Organization) {
+    return this._razorpayProvider.createLifetimeOrder(org.id);
+  }
+
+  @Post('/lifetime/razorpay/verify')
+  async verifyLifetimeRazorpay(
+    @GetOrgFromRequest() org: Organization,
+    @Body()
+    body: {
+      razorpay_order_id: string;
+      razorpay_payment_id: string;
+      razorpay_signature: string;
+    }
+  ) {
+    return this._razorpayProvider.verifyLifetimePayment(org.id, body);
   }
 }

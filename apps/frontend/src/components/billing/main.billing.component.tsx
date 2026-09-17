@@ -12,6 +12,10 @@ import { useToaster } from '@gitroom/react/toaster/toaster';
 import dayjs from 'dayjs';
 import clsx from 'clsx';
 import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
+import {
+  pricingINR,
+  NEW_USER_DISCOUNT_PERCENT,
+} from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 import { FAQComponent } from '@gitroom/frontend/components/billing/faq.component';
 import { useSWRConfig } from 'swr';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
@@ -23,6 +27,7 @@ import { useFireEvents } from '@gitroom/helpers/utils/use.fire.events';
 import { useUtmUrl } from '@gitroom/helpers/utils/utm.saver';
 import { useTrack } from '@gitroom/react/helpers/use.track';
 import { TrackEnum } from '@gitroom/nestjs-libraries/user/track.enum';
+import { PurchaseLifetimeRazorpay } from '@gitroom/frontend/components/billing/purchase.lifetime.razorpay';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { FinishTrial } from '@gitroom/frontend/components/billing/finish.trial';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
@@ -33,6 +38,7 @@ type SubscriptionWithPlatform = Subscription & {
   platform?: 'web' | 'mobile';
 };
 
+
 export const Prorate: FC<{
   period: 'MONTHLY' | 'YEARLY';
   pack: 'STANDARD' | 'PRO';
@@ -40,6 +46,8 @@ export const Prorate: FC<{
   const { period, pack } = props;
   const t = useT();
   const fetch = useFetch();
+  const { currency } = useVariables();
+  const currencySymbol = currency === 'inr' ? '₹' : '$';
   const [price, setPrice] = useState<number | false>(0);
   const [loading, setLoading] = useState(false);
   const calculatePrice = useDebouncedCallback(async () => {
@@ -75,7 +83,8 @@ export const Prorate: FC<{
   }
   return (
     <div className="text-[12px] flex pt-[12px]">
-      ({t('pay_today', 'Pay Today')} ${(price < 0 ? 0 : price)?.toFixed(1)})
+      ({t('pay_today', 'Pay Today')} {currencySymbol}
+      {(price < 0 ? 0 : price)?.toFixed(1)})
     </div>
   );
 };
@@ -83,6 +92,7 @@ export const Features: FC<{
   pack: 'FREE' | 'STANDARD' | 'PRO';
 }> = (props) => {
   const { pack } = props;
+  const { aiVideoGenerationEnabled } = useVariables();
   const features = useMemo(() => {
     const currentPricing = pricing[pack];
     const channelsOr = currentPricing.channel;
@@ -109,11 +119,11 @@ export const Features: FC<{
         `${currentPricing?.image_generation_count} AI Images per month`
       );
     }
-    if (currentPricing?.generate_videos) {
+    if (currentPricing?.generate_videos && aiVideoGenerationEnabled) {
       list.push(`${currentPricing?.generate_videos} AI Videos per month`);
     }
     return list;
-  }, [pack]);
+  }, [pack, aiVideoGenerationEnabled]);
   return (
     <div className="flex flex-col gap-[10px] justify-center text-[16px] text-customColor18">
       {features.map((feature) => (
@@ -216,7 +226,18 @@ export const MainBillingComponent: FC<{
   sub?: SubscriptionWithPlatform;
 }> = (props) => {
   const { sub } = props;
-  const { isGeneral } = useVariables();
+  const { isGeneral, currency, newUserDiscountEnabled } =
+    useVariables();
+  const currencySymbol = currency === 'inr' ? '₹' : '$';
+  const getPrice = useCallback(
+    (tier: string, period: 'month_price' | 'year_price') => {
+      if (currency === 'inr' && tier in pricingINR) {
+        return pricingINR[tier as keyof typeof pricingINR][period];
+      }
+      return pricing[tier][period];
+    },
+    [currency]
+  );
   const { mutate } = useSWRConfig();
   const fetch = useFetch();
   const toast = useToaster();
@@ -408,10 +429,10 @@ export const MainBillingComponent: FC<{
         }
         if (url) {
           await track(TrackEnum.InitiateCheckout, {
-            value:
-              pricing[billing][
-                monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
-              ],
+            value: getPrice(
+              billing,
+              monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
+            ),
           });
           window.location.href = url;
           return;
@@ -494,18 +515,38 @@ export const MainBillingComponent: FC<{
       <div className="flex gap-[16px] [@media(max-width:1024px)]:flex-col [@media(max-width:1024px)]:text-center">
         {Object.entries(pricing)
           .filter((f) => !isGeneral || f[0] !== 'FREE')
-          .map(([name, values]) => (
+          .map(([name, values]) => {
+            const fullPrice = getPrice(
+              name,
+              monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
+            );
+            const isNewUserOffer =
+              !!user?.allowTrial && newUserDiscountEnabled && name !== 'FREE';
+            const discountedPrice = Math.round(
+              (fullPrice * (100 - NEW_USER_DISCOUNT_PERCENT)) / 100
+            );
+            return (
             <div
               key={name}
-              className="flex-1 bg-sixth border border-customColor6 rounded-[4px] p-[24px] gap-[16px] flex flex-col [@media(max-width:1024px)]:items-center"
+              className="flex-1 bg-sixth border border-customColor6 rounded-[4px] p-[24px] gap-[16px] flex flex-col [@media(max-width:1024px)]:items-center relative"
             >
+              {isNewUserOffer && (
+                <div className="absolute -top-[10px] end-[16px] bg-emerald-500 text-white text-[11px] font-semibold px-[10px] py-[3px] rounded-full">
+                  {t('new_user_offer', 'New User Offer')} -{' '}
+                  {NEW_USER_DISCOUNT_PERCENT}% {t('off_first_cycle', 'off first cycle')}
+                </div>
+              )}
               <div className="text-[18px]">{name}</div>
-              <div className="text-[38px] flex gap-[2px] items-center">
+              <div className="text-[38px] flex gap-[6px] items-center">
+                {isNewUserOffer && (
+                  <div className="text-[18px] text-customColor18 line-through">
+                    {currencySymbol}
+                    {fullPrice}
+                  </div>
+                )}
                 <div>
-                  $
-                  {monthlyOrYearly === 'on'
-                    ? values.year_price
-                    : values.month_price}
+                  {currencySymbol}
+                  {isNewUserOffer ? discountedPrice : fullPrice}
                 </div>
                 <div className={`text-[14px] text-customColor18`}>
                   {monthlyOrYearly === 'on' ? '/year' : '/month'}
@@ -575,8 +616,10 @@ export const MainBillingComponent: FC<{
                 pack={name.toUpperCase() as 'FREE' | 'STANDARD' | 'PRO'}
               />
             </div>
-          ))}
+            );
+          })}
       </div>
+      {!subscription?.id && <PurchaseLifetimeRazorpay />}
       {!!subscription?.id && (
         <div className="flex justify-center mt-[20px] gap-[10px]">
           <Button onClick={updatePayment}>

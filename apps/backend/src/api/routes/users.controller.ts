@@ -107,27 +107,27 @@ export class UsersController {
     }
 
     const impersonate = req.cookies.impersonate || req.headers.impersonate;
+    // No payment provider configured at all means this is a self-hosted,
+    // billing-free instance - give it the old "everyone is ULTIMATE" behavior.
+    // Checking STRIPE_PUBLISHABLE_KEY alone here would wrongly treat every
+    // Razorpay-only org as unlimited/non-trialing too.
+    const noPaymentProvider =
+      !process.env.STRIPE_PUBLISHABLE_KEY && !process.env.RAZORPAY_KEY_ID;
     // @ts-ignore
     return {
       ...user,
       orgId: organization.id,
-      totalChannels: !process.env.STRIPE_PUBLISHABLE_KEY
-        ? 10000
-        : // @ts-ignore
-          organization?.subscription?.totalChannels || pricing.FREE.channel,
-      tier:
-        // @ts-ignore
-        organization?.subscription?.subscriptionTier ||
-        (!process.env.STRIPE_PUBLISHABLE_KEY ? 'ULTIMATE' : 'FREE'),
+      // @ts-ignore
+      totalChannels: noPaymentProvider ? 10000 : organization?.subscription?.totalChannels || pricing.FREE.channel,
+      // @ts-ignore
+      tier: organization?.subscription?.subscriptionTier || (noPaymentProvider ? 'ULTIMATE' : 'FREE'),
       // @ts-ignore
       role: organization?.users[0]?.role,
       // @ts-ignore
       isLifetime: !!organization?.subscription?.isLifetime,
       admin: !!user.isSuperAdmin,
       impersonate: !!impersonate,
-      isTrailing: !process.env.STRIPE_PUBLISHABLE_KEY
-        ? false
-        : organization?.isTrailing,
+      isTrailing: noPaymentProvider ? false : organization?.isTrailing,
       allowTrial: organization?.allowTrial,
       streakSince: organization?.streakSince || null,
       publicApi:
@@ -269,6 +269,13 @@ export class UsersController {
   @Get('/subscription/tiers')
   @CheckPolicies([AuthorizationActions.Create, Sections.ADMIN])
   async tiers() {
+    // No provider configured at all (self-hosted, billing-free instance) -
+    // getDefaultProvider('web') would still resolve to whichever provider
+    // happens to be registered first and call it unconfigured, which throws
+    // rather than gracefully degrading.
+    if (!process.env.STRIPE_SECRET_KEY && !process.env.RAZORPAY_KEY_ID) {
+      return {};
+    }
     return this._paymentService.getDefaultProvider('web').getPackages();
   }
 

@@ -206,6 +206,8 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
     // Get all accounts with pagination
     const allAccounts: any[] = [];
     let accountsPageToken: string | undefined;
+    let lastAccountsResponse: Response | undefined;
+    let lastAccountsData: any;
 
     do {
       const params = new URLSearchParams();
@@ -214,20 +216,32 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
       }
       const url = `https://mybusinessaccountmanagement.googleapis.com/v1/accounts${params.toString() ? `?${params}` : ''}`;
 
-      const accountsResponse = await fetch(url, {
+      lastAccountsResponse = await fetch(url, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
       });
-      const accountsData = await accountsResponse.json();
+      lastAccountsData = await lastAccountsResponse.json();
 
-      if (accountsData.accounts) {
-        allAccounts.push(...accountsData.accounts);
+      if (lastAccountsData.accounts) {
+        allAccounts.push(...lastAccountsData.accounts);
       }
-      accountsPageToken = accountsData.nextPageToken;
+      accountsPageToken = lastAccountsData.nextPageToken;
     } while (accountsPageToken);
 
     if (allAccounts.length === 0) {
+      // Logged because an empty/missing accounts list here is ambiguous -
+      // it's the same response shape whether the user genuinely has no GMB
+      // account, or the underlying API call failed (unenabled API, no access
+      // grant from Google, wrong OAuth client/scopes, etc). This log line is
+      // the only way to tell those apart after the fact.
+      console.error(
+        'GMB: no accounts returned from mybusinessaccountmanagement API',
+        {
+          status: lastAccountsResponse?.status,
+          body: lastAccountsData,
+        }
+      );
       return [];
     }
 
@@ -264,6 +278,19 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
             }
           );
           const locationsData = await locationsResponse.json();
+
+          if (!locationsData.locations) {
+            // Same ambiguity as the accounts check above - a non-2xx
+            // response with an error body resolves here rather than
+            // throwing, so this would otherwise fail completely silently.
+            console.error(
+              `GMB: no locations returned for account ${accountName}`,
+              {
+                status: locationsResponse.status,
+                body: locationsData,
+              }
+            );
+          }
 
           if (locationsData.locations) {
             for (const location of locationsData.locations) {

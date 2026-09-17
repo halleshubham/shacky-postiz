@@ -322,7 +322,7 @@ export class OrganizationRepository {
       });
 
     if (
-      process.env.STRIPE_PUBLISHABLE_KEY &&
+      (process.env.STRIPE_PUBLISHABLE_KEY || process.env.RAZORPAY_KEY_ID) &&
       checkForSubscription?.subscription?.subscriptionTier ===
         SubscriptionTier.STANDARD
     ) {

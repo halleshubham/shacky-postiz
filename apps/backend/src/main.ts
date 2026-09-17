@@ -48,8 +48,6 @@ async function start() {
     },
   });
 
-  await startMcp(app);
-
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
@@ -80,6 +78,17 @@ async function start() {
   } catch (e) {
     Logger.error(`Backend failed to start on port ${port}`, e);
   }
+
+  // Deliberately not awaited, and started after app.listen(): this loads
+  // every agent tool's .run() (dozens of them) with no timeout, so a single
+  // slow/hung tool (e.g. an external API call still recovering from a
+  // Redis/Postgres disruption) previously blocked app.listen() forever,
+  // taking down the entire API - login included - for something that only
+  // the AI agent/MCP routes actually need. Express allows registering routes
+  // after listen(), so this is safe to run in the background.
+  startMcp(app).catch((e) => {
+    Logger.error('Failed to start MCP server', e);
+  });
 }
 
 function checkConfiguration() {

@@ -14,7 +14,8 @@ import { GoogleProvider } from '@gitroom/frontend/components/auth/providers/goog
 import { AppleProvider } from '@gitroom/frontend/components/auth/providers/apple.provider';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { FarcasterProvider } from '@gitroom/frontend/components/auth/providers/farcaster.provider';
-import WalletProvider from '@gitroom/frontend/components/auth/providers/wallet.provider';
+// Crypto wallet login disabled
+// import WalletProvider from '@gitroom/frontend/components/auth/providers/wallet.provider';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 type Inputs = {
   email: string;
@@ -88,7 +89,8 @@ export function Login() {
                 <GoogleProvider />
                 {!!appleClientId && <AppleProvider />}
                 {!!neynarClientId && <FarcasterProvider />}
-                {billingEnabled && <WalletProvider />}
+                {/* Crypto wallet login disabled */}
+                {/* {billingEnabled && <WalletProvider />} */}
               </div>
             )}
             <div className="h-[20px] mb-[24px] mt-[24px] relative">
