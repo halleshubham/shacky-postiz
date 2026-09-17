@@ -70,8 +70,6 @@ const YoutubeSettings: FC = () => {
       <div className="mt-[20px]">
         <MediaComponent
           type="image"
-          width={1280}
-          height={720}
           label="Thumbnail"
           description="Thumbnail picture (optional)"
           {...register('thumbnail')}

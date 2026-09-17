@@ -1,4 +1,10 @@
-import { Agent } from 'undici';
+// Pinned to match the undici version Node bundles internally for global
+// fetch() (`process.versions.undici`). A newer `undici` resolved by the
+// workspace (pulled in as a transitive dep of openai/jsdom) constructs
+// Agent/Request objects with a handler interface Node's own fetch()
+// doesn't satisfy, throwing "invalid onRequestStart method" on every
+// request that passes this Agent as `dispatcher`.
+import { Agent } from 'undici-node-compat';
 import axios, { AxiosInstance } from 'axios';
 import dns from 'node:dns';
 import net from 'node:net';
