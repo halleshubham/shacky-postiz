@@ -5,7 +5,17 @@ import { observer } from 'mobx-react-lite';
 import { InputGroup } from '@blueprintjs/core';
 import { Clean } from '@blueprintjs/icons';
 import { SectionTab } from 'polotno/side-panel';
-import { getImageSize } from 'polotno/utils/image';
+// polotno/utils/image re-exports this via a package.json "exports" subpath
+// that this project's tsconfig moduleResolution can't follow (would need
+// "node16"/"nodenext"/"bundler" - a repo-wide change out of scope here), so
+// it's reimplemented locally instead of imported.
+const getImageSize = (url: string): Promise<{ width: number; height: number }> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = reject;
+    img.src = url;
+  });
 import { ImagesGrid } from 'polotno/side-panel/images-grid';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import useSWR from 'swr';
