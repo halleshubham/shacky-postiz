@@ -39,13 +39,31 @@ export const CheckPaymentInner: FC<{
     }
   }, [showLoader]);
 
-  const checkSubscription = useCallback(async () => {
+  // Status 0 (pending) is only ever resolved by the payment provider's
+  // webhook landing - if that's misconfigured or delayed, this would
+  // otherwise spin behind a full-screen blocking overlay forever. Give up
+  // after a couple of minutes and let the user back into the app instead of
+  // trapping them here; the subscription still activates whenever the
+  // webhook does eventually land, on the next page load.
+  const MAX_ATTEMPTS = 120;
+  const checkSubscription = useCallback(async (attempt = 0) => {
     const { status } = await (
       await fetch('/billing/check/' + props.check)
     ).json();
     if (status === 0) {
+      if (attempt >= MAX_ATTEMPTS) {
+        modal.open({
+          title: 'Still confirming your payment',
+          onlyApprove: true,
+          approveLabel: 'OK',
+          description:
+            "This is taking longer than expected. Your payment is still being confirmed - if it went through, your plan will activate automatically within a few minutes. If you're not sure, please contact support.",
+        });
+        setShowLoader(false);
+        return;
+      }
       await timer(1000);
-      return checkSubscription();
+      return checkSubscription(attempt + 1);
     }
     if (status === 1) {
       modal.open({
