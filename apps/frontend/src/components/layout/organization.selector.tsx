@@ -21,10 +21,18 @@ export const OrganizationSelector: FC<{ asOpenSelect?: boolean }> = ({
     revalidateOnReconnect: false,
   });
   const current = useMemo(() => {
-    return data?.find((d: any) => d.id === user?.orgId);
+    // /user/organizations can come back as a non-array (an error body) on a
+    // transient backend hiccup - crashed the whole layout on `.find` before.
+    if (!Array.isArray(data)) {
+      return undefined;
+    }
+    return data.find((d: any) => d.id === user?.orgId);
   }, [data]);
   const withoutCurrent = useMemo(() => {
-    return data?.filter((d: any) => d.id !== user?.orgId);
+    if (!Array.isArray(data)) {
+      return undefined;
+    }
+    return data.filter((d: any) => d.id !== user?.orgId);
   }, [current, data]);
   const changeOrg = useCallback(
     (org: { name: string; id: string }) => async () => {
