@@ -246,7 +246,7 @@ export const useMenuItem = () => {
           />
         </svg>
       ),
-      path: 'https://affiliate.postiz.com',
+      path: 'https://forms.shackyapps.in/forms/contact-form-j5l4cf',
       role: ['ADMIN', 'SUPERADMIN', 'USER'],
       requireBilling: true,
     },
