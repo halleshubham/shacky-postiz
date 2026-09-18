@@ -14,6 +14,7 @@ export class TwitchProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 1;
   identifier = 'twitch';
   name = 'Twitch';
+  comingSoon = true;
   isBetweenSteps = false;
   editor = 'normal' as const;
   scopes = ['user:write:chat', 'user:read:chat', 'moderator:manage:announcements'];

@@ -37,6 +37,7 @@ export class TiktokBusinessProvider
 {
   identifier = 'tiktok-business';
   name = 'TikTok';
+  comingSoon = true;
   isBetweenSteps = false;
   convertToJPEG = true;
   scopes = [

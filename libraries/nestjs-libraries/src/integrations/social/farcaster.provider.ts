@@ -44,6 +44,7 @@ export class FarcasterProvider
 {
   identifier = 'wrapcast';
   name = 'Farcaster';
+  comingSoon = true;
   isBetweenSteps = false;
   isWeb3 = true;
   scopes = [] as string[];

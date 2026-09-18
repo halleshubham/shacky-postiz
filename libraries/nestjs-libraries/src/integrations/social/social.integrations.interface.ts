@@ -189,6 +189,7 @@ export interface SocialProvider
     integration: Integration
   ): Promise<PendingCheckResponse>;
   isWeb3?: boolean;
+  comingSoon?: boolean;
   isChromeExtension?: boolean;
   extensionCookies?: { name: string; domain: string }[];
   editor: 'none' | 'normal' | 'markdown' | 'html';

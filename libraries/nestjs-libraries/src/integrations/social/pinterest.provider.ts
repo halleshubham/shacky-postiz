@@ -53,6 +53,7 @@ export class PinterestProvider
 {
   identifier = 'pinterest';
   name = 'Pinterest';
+  comingSoon = true;
   isBetweenSteps = false;
   scopes = [
     'boards:read',

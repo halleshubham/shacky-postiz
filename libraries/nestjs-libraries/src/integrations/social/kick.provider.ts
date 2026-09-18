@@ -15,6 +15,7 @@ export class KickProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 3;
   identifier = 'kick';
   name = 'Kick';
+  comingSoon = true;
   isBetweenSteps = false;
   editor = 'normal' as const;
   scopes = ['chat:write', 'user:read', 'channel:read'];

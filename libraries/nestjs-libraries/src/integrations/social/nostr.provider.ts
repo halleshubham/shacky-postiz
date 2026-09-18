@@ -30,6 +30,7 @@ export class NostrProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 5;
   identifier = 'nostr';
   name = 'Nostr';
+  comingSoon = true;
   isBetweenSteps = false;
   scopes = [] as string[];
   editor = 'normal' as const;

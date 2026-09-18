@@ -22,6 +22,7 @@ import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 export class ThreadsProvider extends SocialAbstract implements SocialProvider {
   identifier = 'threads';
   name = 'Threads';
+  comingSoon = true;
   isBetweenSteps = false;
   scopes = [
     'threads_basic',

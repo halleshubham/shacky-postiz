@@ -383,6 +383,7 @@ export const AddProviderComponent: FC<{
     toolTip?: string;
     isExternal: boolean;
     isWeb3: boolean;
+    comingSoon?: boolean;
     isChromeExtension?: boolean;
     extensionCookies?: Array<{
       name: string;
@@ -690,21 +691,34 @@ export const AddProviderComponent: FC<{
                 !item.isExternal &&
                 !item.isWeb3 &&
                 !item.isChromeExtension &&
-                !item.customFields
+                !item.customFields &&
+                !item.comingSoon
               );
             })
             .map((item) => (
               <div
                 key={item.identifier}
-                onClick={getSocialLink(
-                  props.invite,
-                  item.identifier,
-                  item.isExternal,
-                  item.isWeb3,
-                  item.isChromeExtension,
-                  item.customFields
-                )}
-                {...(!!item.toolTip
+                onClick={
+                  item.comingSoon
+                    ? undefined
+                    : getSocialLink(
+                        props.invite,
+                        item.identifier,
+                        item.isExternal,
+                        item.isWeb3,
+                        item.isChromeExtension,
+                        item.customFields
+                      )
+                }
+                {...(item.comingSoon
+                  ? {
+                      'data-tooltip-id': 'tooltip',
+                      'data-tooltip-content': t(
+                        'coming_soon',
+                        'Coming soon'
+                      ),
+                    }
+                  : !!item.toolTip
                   ? {
                       'data-tooltip-id': 'tooltip',
                       'data-tooltip-content': item.toolTip,
@@ -714,9 +728,17 @@ export const AddProviderComponent: FC<{
                   isMobile
                     ? 'flex-row h-[72px] p-[16px]'
                     : 'flex-col p-[10px] h-[100px] justify-center',
-                  'w-full text-[14px] rounded-[8px] bg-newTableHeader text-textColor relative items-center flex gap-[10px] cursor-pointer'
+                  'w-full text-[14px] rounded-[8px] bg-newTableHeader text-textColor relative items-center flex gap-[10px]',
+                  item.comingSoon
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'cursor-pointer'
                 )}
               >
+                {item.comingSoon && (
+                  <div className="absolute top-[6px] end-[6px] px-[6px] py-[2px] rounded-[4px] bg-newTableHeader border border-tableBorder text-[10px] leading-none text-textColor/80">
+                    {t('coming_soon', 'Coming soon')}
+                  </div>
+                )}
                 <div>
                   {item.identifier === 'youtube' ? (
                     <img src={`/icons/platforms/youtube.svg`} />

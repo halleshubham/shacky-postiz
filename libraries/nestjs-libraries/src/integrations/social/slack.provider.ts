@@ -15,6 +15,7 @@ export class SlackProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 3; // Slack has moderate API limits
   identifier = 'slack';
   name = 'Slack';
+  comingSoon = true;
   isBetweenSteps = false;
   editor = 'normal' as const;
   scopes = [

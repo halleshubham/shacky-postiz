@@ -137,6 +137,7 @@ export class IntegrationManager {
             editor: p.editor,
             isExternal: !!p.externalUrl,
             isWeb3: !!p.isWeb3,
+            comingSoon: !!p.comingSoon,
             isChromeExtension: !!p.isChromeExtension,
             ...(p.extensionCookies
               ? { extensionCookies: p.extensionCookies }
