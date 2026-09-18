@@ -17,6 +17,7 @@ import { DubAnalytics } from '@gitroom/frontend/components/layout/dubAnalytics';
 import { FacebookComponent } from '@gitroom/frontend/components/layout/facebook.component';
 import { GoogleTagManagerComponent } from '@gitroom/frontend/components/layout/gtm.component';
 import { cookies } from 'next/headers';
+import { getBillingCurrencyServerSide } from '@gitroom/helpers/utils/get.billing.currency.server.side';
 import {
   cookieName,
   fallbackLng,
@@ -34,6 +35,7 @@ const jakartaSans = Plus_Jakarta_Sans({
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const cookieStore = await cookies();
   const language = cookieStore.get(cookieName)?.value || fallbackLng;
+  const billingCurrency = await getBillingCurrencyServerSide();
   const Plausible = !!process.env.STRIPE_PUBLISHABLE_KEY
     ? PlausibleProvider
     : Fragment;
@@ -65,10 +67,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           billingEnabled={
             !!process.env.STRIPE_PUBLISHABLE_KEY || !!process.env.RAZORPAY_KEY_ID
           }
-          currency={
-            process.env.DEFAULT_WEB_PAYMENT_PROVIDER === 'razorpay'
-              ? 'inr'
-              : 'usd'
+          currency={billingCurrency}
+          razorpayInternational={
+            process.env.DEFAULT_WEB_PAYMENT_PROVIDER === 'razorpay' &&
+            process.env.RAZORPAY_INTERNATIONAL_ENABLED === 'true'
           }
           razorpayKeyId={process.env.RAZORPAY_KEY_ID!}
           newUserDiscountEnabled={

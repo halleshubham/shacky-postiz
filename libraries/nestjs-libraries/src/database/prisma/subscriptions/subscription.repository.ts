@@ -155,7 +155,8 @@ export class SubscriptionRepository {
     period: 'MONTHLY' | 'YEARLY',
     cancelAt: number | null,
     code?: string,
-    org?: { id: string }
+    org?: { id: string },
+    currency?: 'inr' | 'usd'
   ) {
     const findOrg =
       org || (await this.getOrganizationByCustomerId(customerId))!;
@@ -163,6 +164,11 @@ export class SubscriptionRepository {
     if (!findOrg) {
       return;
     }
+
+    // Only Razorpay currently bills in more than one currency - every other
+    // provider (Stripe, RevenueCat) is USD-only, so an explicit currency is
+    // only ever passed from the Razorpay path.
+    const resolvedCurrency = currency || (provider === 'razorpay' ? 'inr' : 'usd');
 
     await this._subscription.model.subscription.upsert({
       where: {
@@ -184,6 +190,11 @@ export class SubscriptionRepository {
         isLifetime: !!code,
         cancelAt: cancelAt ? new Date(cancelAt * 1000) : null,
         deletedAt: null,
+        // currency is intentionally not updated here - it's locked to
+        // whatever it was at subscription creation, so an existing
+        // subscriber's price never appears to shift (e.g. if their IP/
+        // region is later detected differently, or international billing
+        // is enabled after they already subscribed).
       },
       create: {
         organizationId: findOrg.id,
@@ -195,6 +206,7 @@ export class SubscriptionRepository {
         cancelAt: cancelAt ? new Date(cancelAt * 1000) : null,
         identifier,
         deletedAt: null,
+        currency: resolvedCurrency,
       },
     });
 

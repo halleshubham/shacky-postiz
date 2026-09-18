@@ -14,6 +14,8 @@ import {
   pricingINR,
   NEW_USER_DISCOUNT_PERCENT,
 } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
+import { pricingUSD } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.international';
+import { CurrencyOverrideComponent } from '@gitroom/frontend/components/billing/currency.override.component';
 import { capitalize } from 'lodash';
 import clsx from 'clsx';
 import { Button } from '@gitroom/react/form/button';
@@ -59,8 +61,13 @@ const loadRazorpayCheckout = () =>
   });
 
 export const FirstBillingComponent = () => {
-  const { currency, newUserDiscountEnabled, razorpayKeyId, isGeneral } =
-    useVariables();
+  const {
+    currency,
+    newUserDiscountEnabled,
+    razorpayKeyId,
+    isGeneral,
+    razorpayInternational,
+  } = useVariables();
   const currencySymbol = currency === 'inr' ? '₹' : '$';
   const user = useUser();
   const dub = useDubClickId();
@@ -79,9 +86,12 @@ export const FirstBillingComponent = () => {
       if (currency === 'inr' && key in pricingINR) {
         return pricingINR[key as keyof typeof pricingINR][p];
       }
+      if (currency === 'usd' && razorpayInternational && key in pricingUSD) {
+        return pricingUSD[key as keyof typeof pricingUSD][p];
+      }
       return pricing[key][p];
     },
-    [currency]
+    [currency, razorpayInternational]
   );
 
   const isNewUserOffer = !!user?.allowTrial && newUserDiscountEnabled;
@@ -343,6 +353,7 @@ export const FirstBillingComponent = () => {
                 </div>
               </div>
             </div>
+            <CurrencyOverrideComponent />
             <div className="grid grid-cols-2 gap-[8px] mobile:!grid-cols-2 tablet:grid-cols-4">
               {price.map(([key]) => (
                 <div

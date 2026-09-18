@@ -10,6 +10,7 @@ import { Plus_Jakarta_Sans } from 'next/font/google';
 import clsx from 'clsx';
 import { VariableContextComponent } from '@gitroom/react/helpers/variable.context';
 import UtmSaver from '@gitroom/helpers/utils/utm.saver';
+import { getBillingCurrencyServerSide } from '@gitroom/helpers/utils/get.billing.currency.server.side';
 
 const jakartaSans = Plus_Jakarta_Sans({
   weight: ['600', '500'],
@@ -18,6 +19,7 @@ const jakartaSans = Plus_Jakarta_Sans({
 });
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
+  const billingCurrency = await getBillingCurrencyServerSide();
   return (
     <html>
       <head>
@@ -37,10 +39,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           billingEnabled={
             !!process.env.STRIPE_PUBLISHABLE_KEY || !!process.env.RAZORPAY_KEY_ID
           }
-          currency={
-            process.env.DEFAULT_WEB_PAYMENT_PROVIDER === 'razorpay'
-              ? 'inr'
-              : 'usd'
+          currency={billingCurrency}
+          razorpayInternational={
+            process.env.DEFAULT_WEB_PAYMENT_PROVIDER === 'razorpay' &&
+            process.env.RAZORPAY_INTERNATIONAL_ENABLED === 'true'
           }
           razorpayKeyId={process.env.RAZORPAY_KEY_ID!}
           newUserDiscountEnabled={

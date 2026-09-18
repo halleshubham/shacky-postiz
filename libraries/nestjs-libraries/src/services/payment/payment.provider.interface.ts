@@ -38,13 +38,16 @@ export abstract class PaymentProviderAbstract {
     return this.notSupported();
   }
 
-  // Hosted checkout page
+  // Hosted checkout page. `currency` is only meaningful to providers that
+  // bill in more than one currency (currently just Razorpay - see
+  // get.currency.from.request.ts); other providers ignore it.
   async subscribe(
     uniqueId: string,
     organizationId: string,
     userId: string,
     body: BillingSubscribeDto,
-    allowTrial: boolean
+    allowTrial: boolean,
+    currency?: 'inr' | 'usd'
   ): Promise<any> {
     return this.notSupported();
   }

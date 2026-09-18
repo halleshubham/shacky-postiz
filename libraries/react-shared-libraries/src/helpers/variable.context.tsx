@@ -37,6 +37,9 @@ interface VariableContextInterface {
   razorpayKeyId: string;
   newUserDiscountEnabled: boolean;
   aiVideoGenerationEnabled: boolean;
+  // True when currency 'usd' means "Razorpay international pricing" rather
+  // than the original Stripe pricing table - see pricing.international.ts.
+  razorpayInternational: boolean;
 }
 const VariableContext = createContext({
   stripeClient: '',
@@ -73,6 +76,7 @@ const VariableContext = createContext({
   razorpayKeyId: '',
   newUserDiscountEnabled: false,
   aiVideoGenerationEnabled: false,
+  razorpayInternational: false,
 } as VariableContextInterface);
 export const VariableContextComponent: FC<
   VariableContextInterface & {

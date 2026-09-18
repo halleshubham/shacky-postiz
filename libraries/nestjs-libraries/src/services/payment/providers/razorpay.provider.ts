@@ -13,6 +13,7 @@ import {
   LIFETIME_PRO_PRICE_INR,
   NEW_USER_DISCOUNT_PERCENT,
 } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
+import { pricingUSD } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.international';
 import { SubscriptionService } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/subscription.service';
 import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.service';
 import {
@@ -29,6 +30,10 @@ const razorpay = new Razorpay({
 
 type Billing = 'STANDARD' | 'TEAM' | 'PRO' | 'ULTIMATE';
 type Period = 'MONTHLY' | 'YEARLY';
+type Currency = 'inr' | 'usd';
+
+const pricingTableFor = (currency: Currency) =>
+  currency === 'usd' ? pricingUSD : pricingINR;
 
 // Billing cycles to pre-authorize: effectively "until cancelled" (10 years).
 const TOTAL_COUNT: Record<Period, number> = {
@@ -103,11 +108,12 @@ export class RazorpayProvider extends PaymentProviderAbstract {
   }
 
   private async upsertSubscription(entity: any) {
-    const { billing, period, organizationId, id } = entity.notes as {
+    const { billing, period, organizationId, id, currency } = entity.notes as {
       billing: Billing;
       period: Period;
       organizationId: string;
       id: string;
+      currency?: Currency;
     };
 
     if (!organizationId || !billing || !period) {
@@ -134,7 +140,8 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       pricing[billing].channel || 0,
       billing,
       period,
-      entity.cancel_at ? Number(entity.cancel_at) : null
+      entity.cancel_at ? Number(entity.cancel_at) : null,
+      currency
     );
   }
 
@@ -154,11 +161,14 @@ export class RazorpayProvider extends PaymentProviderAbstract {
   // AND the current amount, so a pricingINR change creates a fresh plan
   // instead of silently reusing an old one at the old price. Stale plans from
   // previous price points are just left behind in Razorpay, harmless clutter.
-  private async findOrCreatePlan(billing: Billing, period: Period) {
+  private async findOrCreatePlan(
+    billing: Billing,
+    period: Period,
+    currency: Currency = 'inr'
+  ) {
+    const table = pricingTableFor(currency);
     const amount =
-      period === 'MONTHLY'
-        ? pricingINR[billing].month_price
-        : pricingINR[billing].year_price;
+      period === 'MONTHLY' ? table[billing].month_price : table[billing].year_price;
 
     const existing = await razorpay.plans.all({ count: 100 });
     const found = (existing.items || []).find(
@@ -166,6 +176,7 @@ export class RazorpayProvider extends PaymentProviderAbstract {
         p.notes?.billing === billing &&
         p.notes?.period === period &&
         !p.notes?.newUserDiscount &&
+        (p.notes?.currency || 'inr') === currency &&
         p.item?.amount === amount * 100
     );
     if (found) {
@@ -177,10 +188,10 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       interval: 1,
       item: {
         name: `${billing} ${period}`,
-        amount: amount * 100, // paise
-        currency: 'INR',
+        amount: amount * 100, // paise / cents
+        currency: currency.toUpperCase(),
       },
-      notes: { billing, period },
+      notes: { billing, period, currency },
     });
   }
 
@@ -189,11 +200,14 @@ export class RazorpayProvider extends PaymentProviderAbstract {
   // amount - the subscription starts on this plan, then subscribe()
   // schedules a change back to the full-price plan for cycle end, so only
   // the first paid cycle is discounted.
-  private async findOrCreateDiscountedPlan(billing: Billing, period: Period) {
+  private async findOrCreateDiscountedPlan(
+    billing: Billing,
+    period: Period,
+    currency: Currency = 'inr'
+  ) {
+    const table = pricingTableFor(currency);
     const fullAmount =
-      period === 'MONTHLY'
-        ? pricingINR[billing].month_price
-        : pricingINR[billing].year_price;
+      period === 'MONTHLY' ? table[billing].month_price : table[billing].year_price;
     const amount = Math.round(
       (fullAmount * (100 - NEW_USER_DISCOUNT_PERCENT)) / 100
     );
@@ -204,6 +218,7 @@ export class RazorpayProvider extends PaymentProviderAbstract {
         p.notes?.billing === billing &&
         p.notes?.period === period &&
         p.notes?.newUserDiscount === 'true' &&
+        (p.notes?.currency || 'inr') === currency &&
         p.item?.amount === amount * 100
     );
     if (found) {
@@ -215,10 +230,10 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       interval: 1,
       item: {
         name: `${billing} ${period} (new user offer)`,
-        amount: amount * 100, // paise
-        currency: 'INR',
+        amount: amount * 100, // paise / cents
+        currency: currency.toUpperCase(),
       },
-      notes: { billing, period, newUserDiscount: 'true' },
+      notes: { billing, period, newUserDiscount: 'true', currency },
     });
   }
 
@@ -227,16 +242,31 @@ export class RazorpayProvider extends PaymentProviderAbstract {
     organizationId: string,
     userId: string,
     body: BillingSubscribeDto,
-    allowTrial: boolean
+    allowTrial: boolean,
+    currency: Currency = 'inr'
   ) {
     const id = makeId(10);
-    const plan = await this.findOrCreatePlan(body.billing, body.period);
 
     // Existing subscriber changing tier/period - update the live Razorpay
     // subscription in place instead of starting a second one. Falls through
     // to creating a fresh subscription below if this org has no Razorpay
     // subscription yet, or if the update is rejected (e.g. it already ended).
-    const org = await this._organizationService.getOrgById(organizationId);
+    // Their billing currency is locked to whatever it was at subscription
+    // creation - never re-derived from the current request, so a VPN or
+    // misdetected region on a later visit can't shift an existing
+    // subscriber's price.
+    const [org, existingSubscription] = await Promise.all([
+      this._organizationService.getOrgById(organizationId),
+      this._subscriptionService.getSubscription(organizationId),
+    ]);
+    const resolvedCurrency: Currency =
+      (existingSubscription?.currency as Currency) || currency;
+    const plan = await this.findOrCreatePlan(
+      body.billing,
+      body.period,
+      resolvedCurrency
+    );
+
     if (org?.paymentId) {
       try {
         await razorpay.subscriptions.update(org.paymentId, {
@@ -264,7 +294,11 @@ export class RazorpayProvider extends PaymentProviderAbstract {
     // scheduled for cycle end right after creation, so only the first paid
     // cycle is discounted.
     const initialPlan = allowTrial
-      ? await this.findOrCreateDiscountedPlan(body.billing, body.period)
+      ? await this.findOrCreateDiscountedPlan(
+          body.billing,
+          body.period,
+          resolvedCurrency
+        )
       : plan;
 
     const subscription = await razorpay.subscriptions.create({
@@ -280,6 +314,7 @@ export class RazorpayProvider extends PaymentProviderAbstract {
         userId,
         uniqueId,
         id,
+        currency: resolvedCurrency,
       },
     });
 
@@ -329,12 +364,16 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       return { price: false };
     }
 
+    // A tier/period switch never changes the org's billing currency - that's
+    // locked to whatever it was at subscription creation (see
+    // subscription.repository.ts) - so both prices come from the same table.
+    const table = pricingTableFor(
+      (currentSubscription.currency as Currency) || 'inr'
+    );
     const priceKey = body.period === 'MONTHLY' ? 'month_price' : 'year_price';
     const currentPrice =
-      pricingINR[currentSubscription.subscriptionTier as Billing]?.[
-        priceKey
-      ] || 0;
-    const newPrice = pricingINR[body.billing][priceKey];
+      table[currentSubscription.subscriptionTier as Billing]?.[priceKey] || 0;
+    const newPrice = table[body.billing][priceKey];
 
     const cycleStart = razorpaySubscription.current_start;
     const cycleEnd = razorpaySubscription.current_end;
