@@ -398,6 +398,7 @@ type FeatureItem = {
 
 export const BillingFeatures: FC<{ tier: string }> = ({ tier }) => {
   const t = useT();
+  const { aiVideoGenerationEnabled } = useVariables();
   const features = useMemo(() => {
     const currentPricing = pricing[tier];
     const channelsOr = currentPricing.channel;
@@ -446,7 +447,7 @@ export const BillingFeatures: FC<{ tier: string }> = ({ tier }) => {
         prefix: currentPricing?.image_generation_count,
       });
     }
-    if (currentPricing?.generate_videos) {
+    if (currentPricing?.generate_videos && aiVideoGenerationEnabled) {
       list.push({
         key: 'billing_ai_videos_per_month',
         defaultValue: 'AI Videos per month',
@@ -454,7 +455,7 @@ export const BillingFeatures: FC<{ tier: string }> = ({ tier }) => {
       });
     }
     return list;
-  }, [tier]);
+  }, [tier, aiVideoGenerationEnabled]);
 
   const renderFeature = (feature: FeatureItem) => {
     const translatedText = t(feature.key, feature.defaultValue);
