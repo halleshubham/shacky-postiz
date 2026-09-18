@@ -27,7 +27,8 @@ import { useFireEvents } from '@gitroom/helpers/utils/use.fire.events';
 import { useUtmUrl } from '@gitroom/helpers/utils/utm.saver';
 import { useTrack } from '@gitroom/react/helpers/use.track';
 import { TrackEnum } from '@gitroom/nestjs-libraries/user/track.enum';
-import { PurchaseLifetimeRazorpay } from '@gitroom/frontend/components/billing/purchase.lifetime.razorpay';
+// Lifetime offer paused - re-enable by uncommenting this import and its usage below
+// import { PurchaseLifetimeRazorpay } from '@gitroom/frontend/components/billing/purchase.lifetime.razorpay';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { FinishTrial } from '@gitroom/frontend/components/billing/finish.trial';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
@@ -666,7 +667,8 @@ export const MainBillingComponent: FC<{
             );
           })}
       </div>
-      {!subscription?.id && <PurchaseLifetimeRazorpay />}
+      {/* Lifetime offer paused - re-enable by uncommenting */}
+      {/* {!subscription?.id && <PurchaseLifetimeRazorpay />} */}
       {!!subscription?.id && (
         <div className="flex justify-center mt-[20px] gap-[10px]">
           <Button onClick={updatePayment}>
