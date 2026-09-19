@@ -213,8 +213,7 @@ export class SubscriptionService {
     period: 'MONTHLY' | 'YEARLY',
     cancelAt: number | null,
     code?: string,
-    org?: string,
-    currency?: 'inr' | 'usd'
+    org?: string
   ) {
     if (!code) {
       if (!(await this.isManagedBy(customerId, provider))) {
@@ -243,8 +242,7 @@ export class SubscriptionService {
       period,
       cancelAt,
       code,
-      org ? { id: org } : undefined,
-      currency
+      org ? { id: org } : undefined
     );
   }
 
@@ -256,8 +254,7 @@ export class SubscriptionService {
     totalChannels: number,
     billing: 'STANDARD' | 'TEAM' | 'PRO' | 'ULTIMATE',
     period: 'MONTHLY' | 'YEARLY',
-    cancelAt: number | null,
-    currency?: 'inr' | 'usd'
+    cancelAt: number | null
   ) {
     const current = await this._subscriptionRepository.getSubscriptionByOrgId(
       organizationId
@@ -289,8 +286,7 @@ export class SubscriptionService {
       period,
       cancelAt,
       undefined,
-      { id: organizationId },
-      currency
+      { id: organizationId }
     );
   }
 

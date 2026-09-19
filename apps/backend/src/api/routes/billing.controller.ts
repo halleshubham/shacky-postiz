@@ -21,7 +21,6 @@ import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/us
 import { PaymentService } from '@gitroom/nestjs-libraries/services/payment/payment.service';
 import { BillingSyncDto } from '@gitroom/nestjs-libraries/dtos/billing/billing.sync.dto';
 import { RazorpayProvider } from '@gitroom/nestjs-libraries/services/payment/providers/razorpay.provider';
-import { getCurrencyFromHeaders } from '@gitroom/nestjs-libraries/services/payment/get.currency.from.request';
 
 @ApiTags('Billing')
 @Controller('/billing')
@@ -131,8 +130,7 @@ export class BillingController {
       org.id,
       user.id,
       body,
-      org.allowTrial,
-      getCurrencyFromHeaders(req.headers)
+      org.allowTrial
     );
   }
 

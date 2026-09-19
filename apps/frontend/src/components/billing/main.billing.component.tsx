@@ -16,9 +16,7 @@ import {
   pricingINR,
   NEW_USER_DISCOUNT_PERCENT,
 } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
-import { pricingUSD } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.international';
 import { FAQComponent } from '@gitroom/frontend/components/billing/faq.component';
-import { CurrencyOverrideComponent } from '@gitroom/frontend/components/billing/currency.override.component';
 import { useSWRConfig } from 'swr';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -244,25 +242,17 @@ export const MainBillingComponent: FC<{
   sub?: SubscriptionWithPlatform;
 }> = (props) => {
   const { sub } = props;
-  const {
-    isGeneral,
-    currency,
-    newUserDiscountEnabled,
-    razorpayKeyId,
-    razorpayInternational,
-  } = useVariables();
+  const { isGeneral, currency, newUserDiscountEnabled, razorpayKeyId } =
+    useVariables();
   const currencySymbol = currency === 'inr' ? '₹' : '$';
   const getPrice = useCallback(
     (tier: string, period: 'month_price' | 'year_price') => {
       if (currency === 'inr' && tier in pricingINR) {
         return pricingINR[tier as keyof typeof pricingINR][period];
       }
-      if (currency === 'usd' && razorpayInternational && tier in pricingUSD) {
-        return pricingUSD[tier as keyof typeof pricingUSD][period];
-      }
       return pricing[tier][period];
     },
-    [currency, razorpayInternational]
+    [currency]
   );
   const { mutate } = useSWRConfig();
   const fetch = useFetch();
@@ -568,7 +558,6 @@ export const MainBillingComponent: FC<{
           <div>{t('yearly', 'YEARLY')}</div>
         </div>
       </div>
-      <CurrencyOverrideComponent />
 
       {finishTrial && <FinishTrial close={() => setFinishTrial(false)} />}
       <div className="flex gap-[16px] [@media(max-width:1024px)]:flex-col [@media(max-width:1024px)]:text-center">
