@@ -17,6 +17,8 @@ import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integ
 import { SettingsController } from '@gitroom/backend/api/routes/settings.controller';
 import { PostsController } from '@gitroom/backend/api/routes/posts.controller';
 import { MediaController } from '@gitroom/backend/api/routes/media.controller';
+import { MediaWidgetController } from '@gitroom/backend/api/routes/media.widget.controller';
+import { UploadWidgetAuthMiddleware } from '@gitroom/backend/services/auth/upload.widget.auth.middleware';
 import { UploadModule } from '@gitroom/nestjs-libraries/upload/upload.module';
 import { BillingController } from '@gitroom/backend/api/routes/billing.controller';
 import { NotificationsController } from '@gitroom/backend/api/routes/notifications.controller';
@@ -77,7 +79,7 @@ const authenticatedController = [
 @Module({
   imports: [UploadModule],
   controllers: process.env.MCP_ONLY
-    ? [RootController, OAuthController]
+    ? [RootController, OAuthController, MediaWidgetController]
     : [
         RootController,
         PaymentController,
@@ -88,6 +90,7 @@ const authenticatedController = [
         EnterpriseController,
         NoAuthIntegrationsController,
         OAuthController,
+        MediaWidgetController,
         ...authenticatedController,
       ],
   providers: [
@@ -100,6 +103,7 @@ const authenticatedController = [
     OpenaiService,
     ExtractContentService,
     AuthMiddleware,
+    UploadWidgetAuthMiddleware,
     PoliciesGuard,
     PermissionsService,
     CodesService,
@@ -121,5 +125,6 @@ const authenticatedController = [
 export class ApiModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(AuthMiddleware).forRoutes(...authenticatedController);
+    consumer.apply(UploadWidgetAuthMiddleware).forRoutes(MediaWidgetController);
   }
 }
