@@ -1,0 +1,363 @@
+import {
+  AuthTokenDetails,
+  MediaContent,
+  PostDetails,
+  PostResponse,
+  SocialProvider,
+} from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
+import { SocialAbstract } from '@gitroom/nestjs-libraries/integrations/social.abstract';
+import { timer } from '@gitroom/helpers/utils/timer';
+import dayjs from 'dayjs';
+import { Integration } from '@prisma/client';
+import { AuthService } from '@gitroom/helpers/auth/auth.service';
+
+type BotsabCredentials = {
+  url: string;
+  apiKey: string;
+  instanceId: string;
+};
+
+type BotsabTarget = {
+  jid: string;
+  releaseURL: string;
+};
+
+// A Botsab "list" (either a saved group list or a saved contact list) is
+// picked once at connect time and becomes the channel itself - encoded as
+// `group:<id>` / `contact:<id>` in the integration's internalId - rather
+// than being re-picked on every post.
+type BotsabListRef = { kind: 'group' | 'contact'; listId: string };
+
+const parseListRef = (page: string): BotsabListRef => {
+  const [kind, listId] = page.split(':');
+  return { kind: kind as 'group' | 'contact', listId };
+};
+
+export class BotsabProvider extends SocialAbstract implements SocialProvider {
+  identifier = 'botsab';
+  name = 'Botsab';
+  isBetweenSteps = true;
+  scopes = [] as string[];
+  editor = 'normal' as const;
+
+  maxLength() {
+    return 4096;
+  }
+
+  private credentials(integration: Integration): BotsabCredentials {
+    return JSON.parse(
+      AuthService.fixedDecryption(integration.customInstanceDetails!)
+    );
+  }
+
+  // pages()/fetchPageInformation()/reConnect() only ever receive `accessToken`
+  // (no integration row exists yet the first time pages() runs), so unlike
+  // Facebook et al. accessToken here is the same base64 credentials blob the
+  // connect form submitted, not a bare bearer token.
+  private decode(accessToken: string): BotsabCredentials {
+    return JSON.parse(Buffer.from(accessToken, 'base64').toString());
+  }
+
+  private async request(
+    body: BotsabCredentials,
+    path: string,
+    options: RequestInit = {}
+  ) {
+    const url = body.url.replace(/\/$/, '');
+    return (
+      await this.fetch(`${url}${path}`, {
+        ...options,
+        headers: {
+          'x-api-key': body.apiKey,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      })
+    ).json();
+  }
+
+  private async groupLists(body: BotsabCredentials) {
+    const lists = await this.request(body, '/group-lists');
+    return lists.map((list: any) => ({ id: list.id, name: list.name }));
+  }
+
+  private async contactLists(body: BotsabCredentials) {
+    const lists = await this.request(body, '/contact-lists');
+    return lists.map((list: any) => ({ id: list.id, name: list.name }));
+  }
+
+  async customFields() {
+    return [
+      {
+        key: 'url',
+        label: 'Botsab URL',
+        defaultValue: 'https://botsab.shackyapps.in',
+        validation: `/^(https?:\\/\\/)(?:\\S+(?::\\S*)?@)?(?:(?:localhost)|(?:\\d{1,3}(?:\\.\\d{1,3}){3})|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63})(?::\\d{2,5})?(?:\\/[^\\s?#]*)?$/`,
+        type: 'text' as const,
+      },
+      {
+        key: 'instanceId',
+        label: 'Instance ID',
+        validation: `/^.+$/`,
+        type: 'text' as const,
+        hint: 'The instance id from your Botsab dashboard - it must already be paired with WhatsApp there',
+      },
+      {
+        key: 'apiKey',
+        label: 'API Key',
+        validation: `/^.+$/`,
+        type: 'password' as const,
+      },
+    ];
+  }
+
+  async refreshToken(refreshToken: string): Promise<AuthTokenDetails> {
+    return {
+      refreshToken: '',
+      expiresIn: 0,
+      accessToken: '',
+      id: '',
+      name: '',
+      picture: '',
+      username: '',
+    };
+  }
+
+  async generateAuthUrl() {
+    const state = makeId(6);
+    return {
+      url: state,
+      codeVerifier: makeId(10),
+      state,
+    };
+  }
+
+  async authenticate(params: {
+    code: string;
+    codeVerifier: string;
+    refresh?: string;
+  }) {
+    const body: BotsabCredentials = JSON.parse(
+      Buffer.from(params.code, 'base64').toString()
+    );
+
+    try {
+      const instances = await this.request(body, '/instances');
+      const instance = instances.find(
+        (current: any) => current.id === body.instanceId
+      );
+
+      if (!instance) {
+        return 'Instance not found for this API key';
+      }
+
+      if (instance.status !== 'connected') {
+        return 'This instance is not connected yet - pair it with WhatsApp in Botsab first';
+      }
+
+      return {
+        id: instance.id,
+        name: instance.phoneNumber || instance.slug,
+        // Self-sufficient for pages()/fetchPageInformation(), which only get
+        // this accessToken back, never the integration row.
+        accessToken: params.code,
+        refreshToken: '',
+        expiresIn: dayjs().add(100, 'years').unix() - dayjs().unix(),
+        picture: '',
+        username: instance.phoneNumber || instance.slug,
+      };
+    } catch (e) {
+      console.log(e);
+      return 'Could not connect to Botsab with the given URL and API key';
+    }
+  }
+
+  // Called once right after authenticate() succeeds, to offer the "pick a
+  // page" step every isBetweenSteps provider goes through - here the choices
+  // are Botsab's own saved group/contact lists, combined into one list.
+  async pages(accessToken: string) {
+    const body = this.decode(accessToken);
+    const [groups, contacts] = await Promise.all([
+      this.groupLists(body),
+      this.contactLists(body),
+    ]);
+
+    return [
+      ...groups.map((list: any) => ({
+        id: `group:${list.id}`,
+        name: `${list.name} (Group List)`,
+      })),
+      ...contacts.map((list: any) => ({
+        id: `contact:${list.id}`,
+        name: `${list.name} (Contact List)`,
+      })),
+    ];
+  }
+
+  async fetchPageInformation(accessToken: string, data: { page: string }) {
+    const body = this.decode(accessToken);
+    const { kind, listId } = parseListRef(data.page);
+    const lists =
+      kind === 'group'
+        ? await this.groupLists(body)
+        : await this.contactLists(body);
+    const list = lists.find((l: any) => l.id === listId);
+
+    return {
+      id: data.page,
+      name: `${body.instanceId} - ${list?.name || listId}`,
+      access_token: accessToken,
+      picture: '',
+      username: data.page,
+    };
+  }
+
+  async reConnect(id: string, requiredId: string, accessToken: string) {
+    const information = await this.fetchPageInformation(accessToken, {
+      page: requiredId,
+    });
+
+    return {
+      id: information.id,
+      name: information.name,
+      accessToken: information.access_token,
+      picture: information.picture,
+      username: information.username,
+    };
+  }
+
+  // Botsab's send endpoint takes a single attachment per message, so only the
+  // first media item is used - any extra ones attached to the post are dropped.
+  private messageBody(media: MediaContent | undefined, message: string) {
+    if (!media) {
+      return { type: 'text' as const, text: message };
+    }
+
+    if (media.type === 'video') {
+      return { type: 'video' as const, url: media.path, caption: message };
+    }
+
+    return { type: 'image' as const, url: media.path, caption: message };
+  }
+
+  private async targets(
+    body: BotsabCredentials,
+    internalId: string
+  ): Promise<BotsabTarget[]> {
+    const { kind, listId } = parseListRef(internalId);
+
+    if (kind === 'group') {
+      const list = await this.request(body, `/group-lists/${listId}`);
+      return (list.members || []).map((member: any) => ({
+        jid: member.group_jid,
+        releaseURL: '',
+      }));
+    }
+
+    const list = await this.request(body, `/contact-lists/${listId}`);
+    // Contact list numbers are free-typed in Botsab (often with a leading "+"
+    // or spacing), but a WhatsApp JID is digits only - an unsanitized number
+    // silently fails to deliver instead of erroring.
+    return (list.members || []).map((member: any) => {
+      const phone = String(member.phone_number).replace(/[^0-9]/g, '');
+      return {
+        jid: `${phone}@s.whatsapp.net`,
+        releaseURL: `https://wa.me/${phone}`,
+      };
+    });
+  }
+
+  // Botsab's own bulk-campaign sender retries a message up to 3 times when
+  // Baileys hasn't warmed up the E2E session for a chat/group yet ("No
+  // sessions"), but its plain single-send endpoint (the one used here) does
+  // not - without this, a first-time send to a group can report success from
+  // Botsab's HTTP layer while WhatsApp silently drops the undelivered message.
+  private async sendWithRetry(
+    body: BotsabCredentials,
+    target: BotsabTarget,
+    messageBody: Record<string, unknown>
+  ) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await this.request(
+          body,
+          `/instances/${body.instanceId}/messages/send`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ to: target.jid, ...messageBody }),
+          }
+        );
+      } catch (err) {
+        const detail = String((err as any)?.details?.[0]?.json || '');
+        if (attempt < 3 && detail.includes('No sessions')) {
+          await timer(3000 * attempt);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('unreachable');
+  }
+
+  async post(
+    id: string,
+    accessToken: string,
+    postDetails: PostDetails[],
+    integration: Integration
+  ): Promise<PostResponse[]> {
+    const [firstPost] = postDetails;
+    const body = this.credentials(integration);
+    const messageBody = this.messageBody(
+      firstPost.media?.[0],
+      firstPost.message
+    );
+
+    const targets = await this.targets(body, integration.internalId);
+    // The workflow expects exactly one PostResponse per PostDetails item (every
+    // other provider only ever sends one message), so a multi-target post is
+    // fanned out here and folded back into a single result - a failure on one
+    // target must not abort targets already sent, or a retry would resend them.
+    const sent: { messageId: string; releaseURL: string }[] = [];
+    const failedJids: string[] = [];
+    let lastError: unknown;
+
+    for (const [index, target] of targets.entries()) {
+      try {
+        const data = await this.sendWithRetry(body, target, messageBody);
+        sent.push({ messageId: data.messageId, releaseURL: target.releaseURL });
+      } catch (err) {
+        lastError = err;
+        failedJids.push(target.jid);
+      }
+
+      // Sequential sends with a short delay, mirroring Botsab's own sendBulk
+      // default, so a multi-target post doesn't trip WhatsApp's anti-spam bans.
+      if (index < targets.length - 1) {
+        await timer(1000);
+      }
+    }
+
+    if (failedJids.length) {
+      console.log(
+        `Botsab: failed to send to ${failedJids.length}/${targets.length} targets`,
+        failedJids
+      );
+    }
+
+    // Nothing went through - surface the last failure as-is so the workflow's
+    // usual refresh-token/disconnect/retry classification still applies.
+    if (!sent.length) {
+      throw lastError;
+    }
+
+    return [
+      {
+        id: firstPost.id,
+        postId: sent.map((s) => s.messageId).join(','),
+        releaseURL: sent.find((s) => s.releaseURL)?.releaseURL || '',
+        status: 'completed',
+      },
+    ];
+  }
+}
