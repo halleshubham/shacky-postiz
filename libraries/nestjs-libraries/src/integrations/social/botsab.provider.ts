@@ -268,6 +268,38 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     });
   }
 
+  // Botsab's own bulk-campaign sender retries a message up to 3 times when
+  // Baileys hasn't warmed up the E2E session for a chat/group yet ("No
+  // sessions"), but its plain single-send endpoint (the one used here) does
+  // not - without this, a first-time send to a group can report success from
+  // Botsab's HTTP layer while WhatsApp silently drops the undelivered message.
+  private async sendWithRetry(
+    body: BotsabCredentials,
+    target: BotsabTarget,
+    messageBody: Record<string, unknown>
+  ) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await this.request(
+          body,
+          `/instances/${body.instanceId}/messages/send`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ to: target.jid, ...messageBody }),
+          }
+        );
+      } catch (err) {
+        const detail = String((err as any)?.details?.[0]?.json || '');
+        if (attempt < 3 && detail.includes('No sessions')) {
+          await timer(3000 * attempt);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('unreachable');
+  }
+
   async post(
     id: string,
     accessToken: string,
@@ -292,15 +324,7 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
 
     for (const [index, target] of targets.entries()) {
       try {
-        const data = await this.request(
-          body,
-          `/instances/${body.instanceId}/messages/send`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ to: target.jid, ...messageBody }),
-          }
-        );
-
+        const data = await this.sendWithRetry(body, target, messageBody);
         sent.push({ messageId: data.messageId, releaseURL: target.releaseURL });
       } catch (err) {
         lastError = err;
