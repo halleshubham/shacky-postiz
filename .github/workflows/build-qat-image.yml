@@ -1,0 +1,45 @@
+name: "Build QAT Image"
+
+# Manual, on-demand counterpart to build-containers.yml (which only builds on
+# tag push, and pushes to the upstream gitroomhq/postiz-app image): lets any
+# branch be built and pushed to this fork's own ghcr.io/halleshubham/postiz-app
+# image under an explicit tag, for deploying a test build to social-qat.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish under ghcr.io/halleshubham/postiz-app"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Image
+        env:
+          NEXT_PUBLIC_VERSION: ${{ inputs.tag }}
+        run: |
+          docker buildx build --platform linux/amd64 \
+            -f Dockerfile.dev \
+            -t ghcr.io/halleshubham/postiz-app:${{ inputs.tag }} \
+            --build-arg NEXT_PUBLIC_VERSION=${{ env.NEXT_PUBLIC_VERSION }} \
+            --push .
