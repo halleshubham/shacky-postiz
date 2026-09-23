@@ -10,9 +10,7 @@ import { SocialAbstract } from '@gitroom/nestjs-libraries/integrations/social.ab
 import { timer } from '@gitroom/helpers/utils/timer';
 import dayjs from 'dayjs';
 import { Integration } from '@prisma/client';
-import { BotsabDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/botsab.dto';
 import { AuthService } from '@gitroom/helpers/auth/auth.service';
-import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 
 type BotsabCredentials = {
   url: string;
@@ -25,13 +23,23 @@ type BotsabTarget = {
   releaseURL: string;
 };
 
+// A Botsab "list" (either a saved group list or a saved contact list) is
+// picked once at connect time and becomes the channel itself - encoded as
+// `group:<id>` / `contact:<id>` in the integration's internalId - rather
+// than being re-picked on every post.
+type BotsabListRef = { kind: 'group' | 'contact'; listId: string };
+
+const parseListRef = (page: string): BotsabListRef => {
+  const [kind, listId] = page.split(':');
+  return { kind: kind as 'group' | 'contact', listId };
+};
+
 export class BotsabProvider extends SocialAbstract implements SocialProvider {
   identifier = 'botsab';
   name = 'Botsab';
-  isBetweenSteps = false;
+  isBetweenSteps = true;
   scopes = [] as string[];
   editor = 'normal' as const;
-  dto = BotsabDto;
 
   maxLength() {
     return 4096;
@@ -41,6 +49,14 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     return JSON.parse(
       AuthService.fixedDecryption(integration.customInstanceDetails!)
     );
+  }
+
+  // pages()/fetchPageInformation()/reConnect() only ever receive `accessToken`
+  // (no integration row exists yet the first time pages() runs), so unlike
+  // Facebook et al. accessToken here is the same base64 credentials blob the
+  // connect form submitted, not a bare bearer token.
+  private decode(accessToken: string): BotsabCredentials {
+    return JSON.parse(Buffer.from(accessToken, 'base64').toString());
   }
 
   private async request(
@@ -61,12 +77,22 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     ).json();
   }
 
+  private async groupLists(body: BotsabCredentials) {
+    const lists = await this.request(body, '/group-lists');
+    return lists.map((list: any) => ({ id: list.id, name: list.name }));
+  }
+
+  private async contactLists(body: BotsabCredentials) {
+    const lists = await this.request(body, '/contact-lists');
+    return lists.map((list: any) => ({ id: list.id, name: list.name }));
+  }
+
   async customFields() {
     return [
       {
         key: 'url',
         label: 'Botsab URL',
-        defaultValue: '',
+        defaultValue: 'https://botsab.shackyapps.in',
         validation: `/^(https?:\\/\\/)(?:\\S+(?::\\S*)?@)?(?:(?:localhost)|(?:\\d{1,3}(?:\\.\\d{1,3}){3})|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63})(?::\\d{2,5})?(?:\\/[^\\s?#]*)?$/`,
         type: 'text' as const,
       },
@@ -133,7 +159,9 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
       return {
         id: instance.id,
         name: instance.phoneNumber || instance.slug,
-        accessToken: body.apiKey,
+        // Self-sufficient for pages()/fetchPageInformation(), which only get
+        // this accessToken back, never the integration row.
+        accessToken: params.code,
         refreshToken: '',
         expiresIn: dayjs().add(100, 'years').unix() - dayjs().unix(),
         picture: '',
@@ -145,46 +173,58 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     }
   }
 
-  @Tool({ description: 'WhatsApp groups for this instance', dataSchema: [] })
-  async groups(
-    accessToken: string,
-    params: any,
-    id: string,
-    integration: Integration
-  ) {
-    const body = this.credentials(integration);
-    const groups = await this.request(
-      body,
-      `/instances/${body.instanceId}/groups`
-    );
-    return groups.map((group: any) => ({ id: group.id, name: group.name }));
+  // Called once right after authenticate() succeeds, to offer the "pick a
+  // page" step every isBetweenSteps provider goes through - here the choices
+  // are Botsab's own saved group/contact lists, combined into one list.
+  async pages(accessToken: string) {
+    const body = this.decode(accessToken);
+    const [groups, contacts] = await Promise.all([
+      this.groupLists(body),
+      this.contactLists(body),
+    ]);
+
+    return [
+      ...groups.map((list: any) => ({
+        id: `group:${list.id}`,
+        name: `${list.name} (Group List)`,
+      })),
+      ...contacts.map((list: any) => ({
+        id: `contact:${list.id}`,
+        name: `${list.name} (Contact List)`,
+      })),
+    ];
   }
 
-  // Botsab's own saved "group lists" (drafted ahead of time in Botsab) - lets a
-  // post target a whole curated list instead of picking groups one by one here.
-  @Tool({ description: 'Group lists drafted in Botsab', dataSchema: [] })
-  async groupLists(
-    accessToken: string,
-    params: any,
-    id: string,
-    integration: Integration
-  ) {
-    const body = this.credentials(integration);
-    const lists = await this.request(body, '/group-lists');
-    return lists.map((list: any) => ({ id: list.id, name: list.name }));
+  async fetchPageInformation(accessToken: string, data: { page: string }) {
+    const body = this.decode(accessToken);
+    const { kind, listId } = parseListRef(data.page);
+    const lists =
+      kind === 'group'
+        ? await this.groupLists(body)
+        : await this.contactLists(body);
+    const list = lists.find((l: any) => l.id === listId);
+
+    return {
+      id: data.page,
+      name: `${body.instanceId} - ${list?.name || listId}`,
+      access_token: accessToken,
+      picture: '',
+      username: data.page,
+    };
   }
 
-  // Same as groupLists, for Botsab's saved "contact lists" of people.
-  @Tool({ description: 'Contact lists drafted in Botsab', dataSchema: [] })
-  async contactLists(
-    accessToken: string,
-    params: any,
-    id: string,
-    integration: Integration
-  ) {
-    const body = this.credentials(integration);
-    const lists = await this.request(body, '/contact-lists');
-    return lists.map((list: any) => ({ id: list.id, name: list.name }));
+  async reConnect(id: string, requiredId: string, accessToken: string) {
+    const information = await this.fetchPageInformation(accessToken, {
+      page: requiredId,
+    });
+
+    return {
+      id: information.id,
+      name: information.name,
+      accessToken: information.access_token,
+      picture: information.picture,
+      username: information.username,
+    };
   }
 
   // Botsab's send endpoint takes a single attachment per message, so only the
@@ -203,35 +243,19 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
 
   private async targets(
     body: BotsabCredentials,
-    settings: BotsabDto
+    internalId: string
   ): Promise<BotsabTarget[]> {
-    if (settings.targetType === 'person') {
-      const phone = (settings.phoneNumber || '').replace(/[^0-9]/g, '');
-      return [
-        { jid: `${phone}@s.whatsapp.net`, releaseURL: `https://wa.me/${phone}` },
-      ];
-    }
+    const { kind, listId } = parseListRef(internalId);
 
-    if (settings.targetType === 'group') {
-      return [{ jid: settings.targetId!, releaseURL: '' }];
-    }
-
-    if (settings.targetType === 'groupList') {
-      const list = await this.request(
-        body,
-        `/group-lists/${settings.targetId}`
-      );
+    if (kind === 'group') {
+      const list = await this.request(body, `/group-lists/${listId}`);
       return (list.members || []).map((member: any) => ({
         jid: member.group_jid,
         releaseURL: '',
       }));
     }
 
-    // contactList
-    const list = await this.request(
-      body,
-      `/contact-lists/${settings.targetId}`
-    );
+    const list = await this.request(body, `/contact-lists/${listId}`);
     return (list.members || []).map((member: any) => ({
       jid: `${member.phone_number}@s.whatsapp.net`,
       releaseURL: `https://wa.me/${member.phone_number}`,
@@ -241,7 +265,7 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
   async post(
     id: string,
     accessToken: string,
-    postDetails: PostDetails<BotsabDto>[],
+    postDetails: PostDetails[],
     integration: Integration
   ): Promise<PostResponse[]> {
     const [firstPost] = postDetails;
@@ -251,7 +275,7 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
       firstPost.message
     );
 
-    const targets = await this.targets(body, firstPost.settings);
+    const targets = await this.targets(body, integration.internalId);
     // The workflow expects exactly one PostResponse per PostDetails item (every
     // other provider only ever sends one message), so a multi-target post is
     // fanned out here and folded back into a single result - a failure on one
