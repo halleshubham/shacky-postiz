@@ -44,6 +44,10 @@ class HasValidTargets implements ValidatorConstraintInterface {
 }
 
 export class BotsabDto {
+  // Deliberately no @IsOptional()/@ValidateIf() here: either one gates every
+  // decorator on this property in class-validator, which would skip
+  // HasValidTargets whenever groups is undefined - exactly the common case
+  // (only people filled in) where the "at least one target" check must still run.
   @Validate(HasValidTargets)
   @JSONSchema({
     description: 'WhatsApp group ids (from Botsab) to send this post to',

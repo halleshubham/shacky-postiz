@@ -128,6 +128,7 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
         username: instance.phoneNumber || instance.slug,
       };
     } catch (e) {
+      console.log(e);
       return 'Could not connect to Botsab with the given URL and API key';
     }
   }
@@ -151,6 +152,8 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     return groups.map((group: any) => ({ id: group.id, name: group.name }));
   }
 
+  // Botsab's send endpoint takes a single attachment per message, so only the
+  // first media item is used - any extra ones attached to the post are dropped.
   private messageBody(media: MediaContent | undefined, message: string) {
     if (!media) {
       return { type: 'text' as const, text: message };
@@ -195,29 +198,35 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     );
 
     const targets = this.targets(firstPost.settings);
-    const results: PostResponse[] = [];
+    // The workflow expects exactly one PostResponse per PostDetails item (every
+    // other provider only ever sends one message), so a multi-target post is
+    // fanned out here and folded back into a single result - a failure on one
+    // target must not abort targets already sent, or a retry would resend them.
+    const sent: { messageId: string; releaseURL: string }[] = [];
+    const failedJids: string[] = [];
+    let lastError: unknown;
 
     for (const [index, target] of targets.entries()) {
-      const data = await (
-        await this.fetch(
-          `${url}/instances/${body.instanceId}/messages/send`,
-          {
-            method: 'POST',
-            headers: {
-              'x-api-key': body.apiKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ to: target.jid, ...messageBody }),
-          }
-        )
-      ).json();
+      try {
+        const data = await (
+          await this.fetch(
+            `${url}/instances/${body.instanceId}/messages/send`,
+            {
+              method: 'POST',
+              headers: {
+                'x-api-key': body.apiKey,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ to: target.jid, ...messageBody }),
+            }
+          )
+        ).json();
 
-      results.push({
-        id: firstPost.id,
-        postId: data.messageId,
-        releaseURL: target.releaseURL,
-        status: 'completed',
-      });
+        sent.push({ messageId: data.messageId, releaseURL: target.releaseURL });
+      } catch (err) {
+        lastError = err;
+        failedJids.push(target.jid);
+      }
 
       // Sequential sends with a short delay, mirroring Botsab's own sendBulk
       // default, so a multi-target post doesn't trip WhatsApp's anti-spam bans.
@@ -226,6 +235,26 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
       }
     }
 
-    return results;
+    if (failedJids.length) {
+      console.log(
+        `Botsab: failed to send to ${failedJids.length}/${targets.length} targets`,
+        failedJids
+      );
+    }
+
+    // Nothing went through - surface the last failure as-is so the workflow's
+    // usual refresh-token/disconnect/retry classification still applies.
+    if (!sent.length) {
+      throw lastError;
+    }
+
+    return [
+      {
+        id: firstPost.id,
+        postId: sent.map((s) => s.messageId).join(','),
+        releaseURL: sent.find((s) => s.releaseURL)?.releaseURL || '',
+        status: 'completed',
+      },
+    ];
   }
 }
