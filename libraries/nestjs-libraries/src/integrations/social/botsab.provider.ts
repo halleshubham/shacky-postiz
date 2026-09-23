@@ -256,10 +256,16 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     }
 
     const list = await this.request(body, `/contact-lists/${listId}`);
-    return (list.members || []).map((member: any) => ({
-      jid: `${member.phone_number}@s.whatsapp.net`,
-      releaseURL: `https://wa.me/${member.phone_number}`,
-    }));
+    // Contact list numbers are free-typed in Botsab (often with a leading "+"
+    // or spacing), but a WhatsApp JID is digits only - an unsanitized number
+    // silently fails to deliver instead of erroring.
+    return (list.members || []).map((member: any) => {
+      const phone = String(member.phone_number).replace(/[^0-9]/g, '');
+      return {
+        jid: `${phone}@s.whatsapp.net`,
+        releaseURL: `https://wa.me/${phone}`,
+      };
+    });
   }
 
   async post(
