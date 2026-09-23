@@ -1,67 +1,38 @@
 import {
-  Validate,
-  ValidateIf,
-  ValidationArguments,
-  ValidatorConstraint,
-  ValidatorConstraintInterface,
+  IsIn,
+  IsOptional,
   IsString,
   Matches,
+  MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { JSONSchema } from 'class-validator-jsonschema';
 
-// WhatsApp flags/bans a number that fans out to too many chats from a single
-// send, so a post's targets (groups + free-typed numbers combined) are capped
-// well below what Botsab itself allows per call.
-export const BOTSAB_MAX_RECIPIENTS = 25;
-
-@ValidatorConstraint({ name: 'botsabHasValidTargets', async: false })
-class HasValidTargets implements ValidatorConstraintInterface {
-  validate(groups: unknown, args: ValidationArguments) {
-    const object = args.object as BotsabDto;
-
-    if (groups !== undefined) {
-      if (
-        !Array.isArray(groups) ||
-        !groups.every((group) => typeof group === 'string')
-      ) {
-        return false;
-      }
-    }
-
-    const groupsCount = (groups as string[] | undefined)?.length || 0;
-    const peopleCount = (object.people || '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean).length;
-    const total = groupsCount + peopleCount;
-
-    return total > 0 && total <= BOTSAB_MAX_RECIPIENTS;
-  }
-
-  defaultMessage() {
-    return `Select at least one person or group, up to ${BOTSAB_MAX_RECIPIENTS} in total`;
-  }
-}
-
 export class BotsabDto {
-  // Deliberately no @IsOptional()/@ValidateIf() here: either one gates every
-  // decorator on this property in class-validator, which would skip
-  // HasValidTargets whenever groups is undefined - exactly the common case
-  // (only people filled in) where the "at least one target" check must still run.
-  @Validate(HasValidTargets)
-  @JSONSchema({
-    description: 'WhatsApp group ids (from Botsab) to send this post to',
-  })
-  groups?: string[];
-
-  @ValidateIf((o) => !!o.people)
-  @IsString()
-  @Matches(/^[0-9+,\s]+$/, {
-    message: 'Use phone numbers with country code, separated by commas',
-  })
+  @IsIn(['group', 'person', 'groupList', 'contactList'])
   @JSONSchema({
     description:
-      'Comma separated WhatsApp phone numbers (with country code) to send this post to',
+      'Where to send: a single WhatsApp group, a single person, or a group/contact list already drafted in Botsab',
   })
-  people?: string;
+  targetType: 'group' | 'person' | 'groupList' | 'contactList';
+
+  @ValidateIf((o) => o.targetType !== 'person')
+  @MinLength(1)
+  @IsString()
+  @JSONSchema({
+    description:
+      'The selected group id, group list id or contact list id, depending on targetType',
+  })
+  @IsOptional()
+  targetId?: string;
+
+  @ValidateIf((o) => o.targetType === 'person')
+  @Matches(/^[0-9+]+$/, {
+    message: 'Use a phone number with country code',
+  })
+  @JSONSchema({
+    description: 'Phone number (with country code) to message directly',
+  })
+  @IsOptional()
+  phoneNumber?: string;
 }

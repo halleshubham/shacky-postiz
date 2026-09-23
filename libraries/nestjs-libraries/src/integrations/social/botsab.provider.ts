@@ -43,6 +43,24 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     );
   }
 
+  private async request(
+    body: BotsabCredentials,
+    path: string,
+    options: RequestInit = {}
+  ) {
+    const url = body.url.replace(/\/$/, '');
+    return (
+      await this.fetch(`${url}${path}`, {
+        ...options,
+        headers: {
+          'x-api-key': body.apiKey,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      })
+    ).json();
+  }
+
   async customFields() {
     return [
       {
@@ -97,15 +115,9 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     const body: BotsabCredentials = JSON.parse(
       Buffer.from(params.code, 'base64').toString()
     );
-    const url = body.url.replace(/\/$/, '');
 
     try {
-      const instances = await (
-        await this.fetch(`${url}/instances`, {
-          headers: { 'x-api-key': body.apiKey },
-        })
-      ).json();
-
+      const instances = await this.request(body, '/instances');
       const instance = instances.find(
         (current: any) => current.id === body.instanceId
       );
@@ -141,15 +153,38 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     integration: Integration
   ) {
     const body = this.credentials(integration);
-    const url = body.url.replace(/\/$/, '');
-
-    const groups = await (
-      await this.fetch(`${url}/instances/${body.instanceId}/groups`, {
-        headers: { 'x-api-key': body.apiKey },
-      })
-    ).json();
-
+    const groups = await this.request(
+      body,
+      `/instances/${body.instanceId}/groups`
+    );
     return groups.map((group: any) => ({ id: group.id, name: group.name }));
+  }
+
+  // Botsab's own saved "group lists" (drafted ahead of time in Botsab) - lets a
+  // post target a whole curated list instead of picking groups one by one here.
+  @Tool({ description: 'Group lists drafted in Botsab', dataSchema: [] })
+  async groupLists(
+    accessToken: string,
+    params: any,
+    id: string,
+    integration: Integration
+  ) {
+    const body = this.credentials(integration);
+    const lists = await this.request(body, '/group-lists');
+    return lists.map((list: any) => ({ id: list.id, name: list.name }));
+  }
+
+  // Same as groupLists, for Botsab's saved "contact lists" of people.
+  @Tool({ description: 'Contact lists drafted in Botsab', dataSchema: [] })
+  async contactLists(
+    accessToken: string,
+    params: any,
+    id: string,
+    integration: Integration
+  ) {
+    const body = this.credentials(integration);
+    const lists = await this.request(body, '/contact-lists');
+    return lists.map((list: any) => ({ id: list.id, name: list.name }));
   }
 
   // Botsab's send endpoint takes a single attachment per message, so only the
@@ -166,21 +201,41 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
     return { type: 'image' as const, url: media.path, caption: message };
   }
 
-  private targets(settings: BotsabDto): BotsabTarget[] {
-    const groupTargets: BotsabTarget[] = (settings.groups || []).map(
-      (groupId) => ({ jid: groupId, releaseURL: '' })
-    );
+  private async targets(
+    body: BotsabCredentials,
+    settings: BotsabDto
+  ): Promise<BotsabTarget[]> {
+    if (settings.targetType === 'person') {
+      const phone = (settings.phoneNumber || '').replace(/[^0-9]/g, '');
+      return [
+        { jid: `${phone}@s.whatsapp.net`, releaseURL: `https://wa.me/${phone}` },
+      ];
+    }
 
-    const peopleTargets: BotsabTarget[] = (settings.people || '')
-      .split(',')
-      .map((phone) => phone.replace(/[^0-9]/g, ''))
-      .filter(Boolean)
-      .map((phone) => ({
-        jid: `${phone}@s.whatsapp.net`,
-        releaseURL: `https://wa.me/${phone}`,
+    if (settings.targetType === 'group') {
+      return [{ jid: settings.targetId!, releaseURL: '' }];
+    }
+
+    if (settings.targetType === 'groupList') {
+      const list = await this.request(
+        body,
+        `/group-lists/${settings.targetId}`
+      );
+      return (list.members || []).map((member: any) => ({
+        jid: member.group_jid,
+        releaseURL: '',
       }));
+    }
 
-    return [...groupTargets, ...peopleTargets];
+    // contactList
+    const list = await this.request(
+      body,
+      `/contact-lists/${settings.targetId}`
+    );
+    return (list.members || []).map((member: any) => ({
+      jid: `${member.phone_number}@s.whatsapp.net`,
+      releaseURL: `https://wa.me/${member.phone_number}`,
+    }));
   }
 
   async post(
@@ -191,13 +246,12 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
   ): Promise<PostResponse[]> {
     const [firstPost] = postDetails;
     const body = this.credentials(integration);
-    const url = body.url.replace(/\/$/, '');
     const messageBody = this.messageBody(
       firstPost.media?.[0],
       firstPost.message
     );
 
-    const targets = this.targets(firstPost.settings);
+    const targets = await this.targets(body, firstPost.settings);
     // The workflow expects exactly one PostResponse per PostDetails item (every
     // other provider only ever sends one message), so a multi-target post is
     // fanned out here and folded back into a single result - a failure on one
@@ -208,19 +262,14 @@ export class BotsabProvider extends SocialAbstract implements SocialProvider {
 
     for (const [index, target] of targets.entries()) {
       try {
-        const data = await (
-          await this.fetch(
-            `${url}/instances/${body.instanceId}/messages/send`,
-            {
-              method: 'POST',
-              headers: {
-                'x-api-key': body.apiKey,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ to: target.jid, ...messageBody }),
-            }
-          )
-        ).json();
+        const data = await this.request(
+          body,
+          `/instances/${body.instanceId}/messages/send`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ to: target.jid, ...messageBody }),
+          }
+        );
 
         sent.push({ messageId: data.messageId, releaseURL: target.releaseURL });
       } catch (err) {
