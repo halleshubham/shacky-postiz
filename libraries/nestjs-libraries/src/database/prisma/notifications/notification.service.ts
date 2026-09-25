@@ -5,6 +5,7 @@ import { OrganizationRepository } from '@gitroom/nestjs-libraries/database/prism
 import { TemporalService } from 'nestjs-temporal-core';
 import { TypedSearchAttributes } from '@temporalio/common';
 import { organizationId } from '@gitroom/nestjs-libraries/temporal/temporal.search.attribute';
+import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
 
 export type NotificationType = 'success' | 'fail' | 'info';
 
@@ -55,7 +56,7 @@ export class NotificationService {
       try {
         await this._temporalService.client
           .getRawClient()
-          ?.workflow.signalWithStart('digestEmailWorkflow', {
+          ?.workflow.signalWithStart('digestEmailWorkflowV2', {
             workflowId: 'digest_email_workflow_' + orgId,
             signal: 'email',
             signalArgs: [
@@ -69,7 +70,14 @@ export class NotificationService {
             ],
             taskQueue: 'main',
             workflowIdConflictPolicy: 'USE_EXISTING',
-            args: [{ organizationId: orgId }],
+            args: [
+              {
+                organizationId: orgId,
+                digestSubject: `[${
+                  isGeneralServerSide() ? 'Postiz' : 'SocioBird'
+                }] Your latest notifications`,
+              },
+            ],
             typedSearchAttributes: new TypedSearchAttributes([
               {
                 key: organizationId,

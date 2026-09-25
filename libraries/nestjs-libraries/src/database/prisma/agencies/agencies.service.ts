@@ -50,7 +50,7 @@ export class AgenciesService {
 <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
   Hi there, <br /><br />
   Your agency ${agency?.name} has been added to SocioBird!<br />
-  You can <a href="https://social.shackyapps.in/agencies/${agency?.slug}">check it here</a><br />
+  You can <a href="${process.env.FRONTEND_URL}/agencies/${agency?.slug}">check it here</a><br />
   It will appear on the main agency of SocioBird in the next 24 hours.<br /><br />
 </body>
 </html>`
@@ -193,17 +193,21 @@ export class AgenciesService {
         </tr>
         <tr>
             <td style="padding: 20px; text-align: center; background-color: #000;">
-                <a href="https://social.shackyapps.in/agencies/action/approve/${
-                  agency.id
-                }" style="margin: 0 10px; text-decoration: none; color: #007bff;">To approve click here</a><br /><br /><br />
-                <a href="https://social.shackyapps.in/agencies/action/decline/${
-                  agency.id
-                }" style="margin: 0 10px; text-decoration: none; color: #007bff;">To decline click here</a><br /><br /><br />
+                <a href="${
+                  process.env.FRONTEND_URL
+                }/agencies/action/approve/${
+      agency.id
+    }" style="margin: 0 10px; text-decoration: none; color: #007bff;">To approve click here</a><br /><br /><br />
+                <a href="${
+                  process.env.FRONTEND_URL
+                }/agencies/action/decline/${
+      agency.id
+    }" style="margin: 0 10px; text-decoration: none; color: #007bff;">To decline click here</a><br /><br /><br />
             </td>
         </tr>
         <tr>
             <td style="padding: 20px; text-align: center; background-color: #f4f4f4;">
-                <p style="color: #777; font-size: 14px;">&copy; 2024 Your Gitroom Limited All rights reserved.</p>
+                <p style="color: #777; font-size: 14px;">&copy; 2024 ShackyApps. All rights reserved.</p>
             </td>
         </tr>
     </table>

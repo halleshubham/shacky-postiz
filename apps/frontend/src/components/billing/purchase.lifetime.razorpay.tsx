@@ -60,7 +60,7 @@ export const PurchaseLifetimeRazorpay: FC = () => {
       order_id: orderId,
       amount,
       currency,
-      name: isGeneral ? 'Postiz' : 'Gitroom',
+      name: isGeneral ? 'Postiz' : 'SocioBird',
       description: 'Lifetime PRO account',
       prefill: { email: user?.email },
       handler: async (response: {
