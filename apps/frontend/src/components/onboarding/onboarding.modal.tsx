@@ -690,17 +690,19 @@ const OnboardingStep3: FC<{ onBack: () => void; onFinish: () => void }> = ({
   onFinish,
 }) => {
   const t = useT();
+  const { isGeneral } = useVariables();
+  const brand = isGeneral ? 'Postiz' : 'SocioBird';
 
   return (
     <div className="flex flex-col gap-[24px] flex-1">
       <div className="flex gap-[4px] flex-col text-center">
         <div className="text-[24px] font-semibold">
-          {t('watch_tutorial_title', 'Learn How to Use Postiz')}
+          {t('watch_tutorial_title', `Learn How to Use ${brand}`)}
         </div>
         <div className="text-[14px] text-customColor18">
           {t(
             'watch_tutorial_description',
-            'Watch this short video to learn how to get the most out of Postiz'
+            `Watch this short video to learn how to get the most out of ${brand}`
           )}
         </div>
       </div>
@@ -711,7 +713,7 @@ const OnboardingStep3: FC<{ onBack: () => void; onFinish: () => void }> = ({
           <iframe
             className="h-full aspect-video"
             src="https://www.youtube.com/embed/BdsCVvEYgHU?si=vvhaZJ8I5oXXvVJS?autoplay=1"
-            title="Postiz Tutorial"
+            title={`${brand} Tutorial`}
             allow="autoplay"
             allowFullScreen
           />

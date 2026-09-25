@@ -12,6 +12,7 @@ import { LogoTextComponent } from '@gitroom/frontend/components/ui/logo-text.com
 import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
 import {
   pricingINR,
+  pricingUSD,
   NEW_USER_DISCOUNT_PERCENT,
 } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 import { capitalize } from 'lodash';
@@ -61,7 +62,20 @@ const loadRazorpayCheckout = () =>
 export const FirstBillingComponent = () => {
   const { currency, newUserDiscountEnabled, razorpayKeyId, isGeneral } =
     useVariables();
-  const currencySymbol = currency === 'inr' ? '₹' : '$';
+  // Razorpay is now activated for USD too, so instances running it get an
+  // INR/USD toggle here - same as the main billing page. Stripe-only
+  // instances have no choice to make, `currency` from context is already
+  // the only currency they ever bill in.
+  const hasCurrencyChoice = !!razorpayKeyId;
+  const [currencyToggle, setCurrencyToggle] = useState<'INR' | 'USD'>(
+    currency === 'usd' ? 'USD' : 'INR'
+  );
+  const selectedCurrency = hasCurrencyChoice
+    ? currencyToggle === 'USD'
+      ? 'usd'
+      : 'inr'
+    : currency;
+  const currencySymbol = selectedCurrency === 'inr' ? '₹' : '$';
   const user = useUser();
   const dub = useDubClickId();
   const utm = useUtmUrl();
@@ -76,17 +90,30 @@ export const FirstBillingComponent = () => {
 
   const getPrice = useCallback(
     (key: string, p: 'month_price' | 'year_price') => {
-      if (currency === 'inr' && key in pricingINR) {
+      if (selectedCurrency === 'inr' && key in pricingINR) {
         return pricingINR[key as keyof typeof pricingINR][p];
+      }
+      if (hasCurrencyChoice && selectedCurrency === 'usd') {
+        // ULTIMATE has no self-serve USD price - contact-us only, same as
+        // the marketing site's "Scale" tier.
+        return key in pricingUSD
+          ? pricingUSD[key as keyof typeof pricingUSD][p]
+          : null;
       }
       return pricing[key][p];
     },
-    [currency]
+    [selectedCurrency, hasCurrencyChoice]
   );
+  const isContactUsOnly = getPrice(tier, 'month_price') === null;
 
   const isNewUserOffer = !!user?.allowTrial && newUserDiscountEnabled;
 
   const startCheckout = useCallback(async () => {
+    if (isContactUsOnly) {
+      window.location.href =
+        'mailto:support@shackyapps.in?subject=SocioBird%20Scale%20plan';
+      return;
+    }
     setLoading(true);
     const { url, blocked, razorpaySubscriptionId, checkId } = await (
       await fetch('/billing/subscribe', {
@@ -95,6 +122,7 @@ export const FirstBillingComponent = () => {
           period,
           billing: tier,
           utm,
+          ...(hasCurrencyChoice ? { currency: selectedCurrency.toUpperCase() } : {}),
           ...(dub ? { dub } : {}),
         }),
       })
@@ -131,7 +159,7 @@ export const FirstBillingComponent = () => {
       const razorpayCheckout = new (window as any).Razorpay({
         key: razorpayKeyId,
         subscription_id: razorpaySubscriptionId,
-        name: isGeneral ? 'Postiz' : 'Gitroom',
+        name: isGeneral ? 'Postiz' : 'SocioBird',
         prefill: { email: user?.email },
         handler: () => {
           window.location.href = `/launches?onboarding=true&check=${checkId}`;
@@ -145,16 +173,16 @@ export const FirstBillingComponent = () => {
     }
     setLoading(false);
     toast.show('Something went wrong, please try again', 'warning');
-  }, [tier, period, utm, dub, getPrice]);
+  }, [tier, period, utm, dub, getPrice, isContactUsOnly, hasCurrencyChoice, selectedCurrency]);
 
   const showYouTube = () => {
     modals.openModal({
-      title: 'Grow Fast With Postiz (Play the video)',
+      title: `Grow Fast With ${isGeneral ? 'Postiz' : 'SocioBird'} (Play the video)`,
       children: (
         <iframe
           className="h-full aspect-video min-w-[800px]"
           src="https://www.youtube.com/embed/BdsCVvEYgHU?si=vvhaZJ8I5oXXvVJS?autoplay=1"
-          title="Postiz Tutorial"
+          title={`${isGeneral ? 'Postiz' : 'SocioBird'} Tutorial`}
           allow="autoplay"
           allowFullScreen
         />
@@ -178,7 +206,7 @@ export const FirstBillingComponent = () => {
           {t('billing_who_use', 'who use')}{' '}
           {t(
             'billing_postiz_grow_social',
-            'Postiz To Grow Their Social Presence'
+            `${isGeneral ? 'Postiz' : 'SocioBird'} To Grow Their Social Presence`
           )}
         </div>
 
@@ -193,7 +221,7 @@ export const FirstBillingComponent = () => {
                 alt="YouTube"
               />
             </div>
-            <div>See the power of Postiz (click here)</div>
+            <div>See the power of {isGeneral ? 'Postiz' : 'SocioBird'} (click here)</div>
           </div>
         </div>
 
@@ -264,35 +292,41 @@ export const FirstBillingComponent = () => {
           <div className="mt-[24px] p-[24px] rounded-[20px] border-[1.5px] border-newColColor flex flex-col gap-[16px]">
             <div className="flex items-center justify-between">
               <div className="text-[18px] font-[600]">{capitalize(tier)}</div>
-              <div className="flex gap-[6px] items-center">
-                {isNewUserOffer && (
-                  <div className="text-[16px] text-customColor18 line-through">
-                    {currencySymbol}
-                    {getPrice(tier, period === 'YEARLY' ? 'year_price' : 'month_price')}
-                  </div>
-                )}
+              {isContactUsOnly ? (
                 <div className="text-[28px] font-[700]">
-                  {currencySymbol}
-                  {isNewUserOffer
-                    ? Math.round(
-                        (getPrice(
+                  {t('custom_pricing', 'Custom')}
+                </div>
+              ) : (
+                <div className="flex gap-[6px] items-center">
+                  {isNewUserOffer && (
+                    <div className="text-[16px] text-customColor18 line-through">
+                      {currencySymbol}
+                      {getPrice(tier, period === 'YEARLY' ? 'year_price' : 'month_price')}
+                    </div>
+                  )}
+                  <div className="text-[28px] font-[700]">
+                    {currencySymbol}
+                    {isNewUserOffer
+                      ? Math.round(
+                          (getPrice(
+                            tier,
+                            period === 'YEARLY' ? 'year_price' : 'month_price'
+                          )! *
+                            (100 - NEW_USER_DISCOUNT_PERCENT)) /
+                            100
+                        )
+                      : getPrice(
                           tier,
                           period === 'YEARLY' ? 'year_price' : 'month_price'
-                        ) *
-                          (100 - NEW_USER_DISCOUNT_PERCENT)) /
-                          100
-                      )
-                    : getPrice(
-                        tier,
-                        period === 'YEARLY' ? 'year_price' : 'month_price'
-                      )}
+                        )}
+                  </div>
+                  <div className="text-[14px] text-customColor18">
+                    {period === 'YEARLY' ? '/year' : '/month'}
+                  </div>
                 </div>
-                <div className="text-[14px] text-customColor18">
-                  {period === 'YEARLY' ? '/year' : '/month'}
-                </div>
-              </div>
+              )}
             </div>
-            {isNewUserOffer && (
+            {isNewUserOffer && !isContactUsOnly && (
               <div className="text-[13px] text-emerald-500 font-[600]">
                 {t('new_user_offer', 'New User Offer')} -{' '}
                 {NEW_USER_DISCOUNT_PERCENT}%{' '}
@@ -300,7 +334,9 @@ export const FirstBillingComponent = () => {
               </div>
             )}
             <Button loading={loading} onClick={startCheckout}>
-              {user?.allowTrial
+              {isContactUsOnly
+                ? t('email_us', 'Email us')
+                : user?.allowTrial
                 ? t('start_7_days_free_trial', 'Start 7 days free trial')
                 : t('billing_purchase', 'Purchase')}
             </Button>
@@ -311,10 +347,36 @@ export const FirstBillingComponent = () => {
             <div className="hidden tablet:block">
               <JoinOver />
             </div>
-            <div className="flex mb-[24px] mobile:flex-col">
+            <div className="flex mb-[24px] mobile:flex-col gap-[12px]">
               <div className="flex-1 text-[24px] font-[700]">
                 {t('billing_choose_plan', 'Choose a Plan')}
               </div>
+              {hasCurrencyChoice && (
+                <div className="h-[44px] px-[6px] mobile:px-0 flex items-center justify-center mobile:justify-start gap-[12px] border border-newColColor rounded-[12px] select-none">
+                  <div
+                    className={clsx(
+                      'h-[32px] mobile:flex-1 rounded-[6px] text-[16px] px-[12px] flex justify-center items-center',
+                      currencyToggle === 'INR'
+                        ? 'bg-boxFocused text-textItemFocused'
+                        : 'cursor-pointer'
+                    )}
+                    onClick={() => setCurrencyToggle('INR')}
+                  >
+                    {t('currency_inr', 'INR')}
+                  </div>
+                  <div
+                    className={clsx(
+                      'h-[32px] mobile:flex-1 rounded-[6px] text-[16px] px-[12px] flex justify-center items-center',
+                      currencyToggle === 'USD'
+                        ? 'bg-boxFocused text-textItemFocused'
+                        : 'cursor-pointer'
+                    )}
+                    onClick={() => setCurrencyToggle('USD')}
+                  >
+                    {t('currency_usd', 'USD')}
+                  </div>
+                </div>
+              )}
               <div className="h-[44px] px-[6px] mobile:px-0 flex items-center justify-center mobile:justify-start gap-[12px] border border-newColColor rounded-[12px] select-none">
                 <div
                   className={clsx(
@@ -358,18 +420,32 @@ export const FirstBillingComponent = () => {
                   <div className="text-[20px] mobile:text-[18px] font-[500]">
                     {capitalize(key)}
                   </div>
-                  <div className="text-[24px] mobile:text-[18px] font-[400]">
-                    <span className="text-[44px] mobile:text-[30px] font-[600]">
-                      {currencySymbol}
-                      {getPrice(
-                        key,
-                        period === 'MONTHLY' ? 'month_price' : 'year_price'
-                      )}
-                    </span>{' '}
-                    {period === 'MONTHLY'
-                      ? t('billing_per_month', '/ month')
-                      : t('billing_per_year', '/ year')}
-                  </div>
+                  {(() => {
+                    const keyPrice = getPrice(
+                      key,
+                      period === 'MONTHLY' ? 'month_price' : 'year_price'
+                    );
+                    if (keyPrice === null) {
+                      return (
+                        <div className="text-[24px] mobile:text-[18px] font-[400]">
+                          <span className="text-[44px] mobile:text-[30px] font-[600]">
+                            {t('custom_pricing', 'Custom')}
+                          </span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="text-[24px] mobile:text-[18px] font-[400]">
+                        <span className="text-[44px] mobile:text-[30px] font-[600]">
+                          {currencySymbol}
+                          {keyPrice}
+                        </span>{' '}
+                        {period === 'MONTHLY'
+                          ? t('billing_per_month', '/ month')
+                          : t('billing_per_year', '/ year')}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

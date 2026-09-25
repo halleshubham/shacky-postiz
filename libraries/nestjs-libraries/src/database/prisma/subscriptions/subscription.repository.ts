@@ -155,7 +155,8 @@ export class SubscriptionRepository {
     period: 'MONTHLY' | 'YEARLY',
     cancelAt: number | null,
     code?: string,
-    org?: { id: string }
+    org?: { id: string },
+    currency?: 'INR' | 'USD'
   ) {
     const findOrg =
       org || (await this.getOrganizationByCustomerId(customerId))!;
@@ -163,6 +164,10 @@ export class SubscriptionRepository {
     if (!findOrg) {
       return;
     }
+
+    // Stripe is always USD in this app; every other provider (Razorpay,
+    // RevenueCat) defaults to INR unless the caller says otherwise.
+    const resolvedCurrency = currency || (provider === 'stripe' ? 'USD' : 'INR');
 
     await this._subscription.model.subscription.upsert({
       where: {
@@ -184,6 +189,7 @@ export class SubscriptionRepository {
         isLifetime: !!code,
         cancelAt: cancelAt ? new Date(cancelAt * 1000) : null,
         deletedAt: null,
+        currency: resolvedCurrency,
       },
       create: {
         organizationId: findOrg.id,
@@ -195,6 +201,7 @@ export class SubscriptionRepository {
         cancelAt: cancelAt ? new Date(cancelAt * 1000) : null,
         identifier,
         deletedAt: null,
+        currency: resolvedCurrency,
       },
     });
 

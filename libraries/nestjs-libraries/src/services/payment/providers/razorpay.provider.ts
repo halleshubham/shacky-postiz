@@ -9,9 +9,10 @@ import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { BillingSubscribeDto } from '@gitroom/nestjs-libraries/dtos/billing/billing.subscribe.dto';
 import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
 import {
-  pricingINR,
   LIFETIME_PRO_PRICE_INR,
   NEW_USER_DISCOUNT_PERCENT,
+  getRazorpayPricing,
+  RazorpayCurrency,
 } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 import { SubscriptionService } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/subscription.service';
 import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.service';
@@ -103,11 +104,12 @@ export class RazorpayProvider extends PaymentProviderAbstract {
   }
 
   private async upsertSubscription(entity: any) {
-    const { billing, period, organizationId, id } = entity.notes as {
+    const { billing, period, organizationId, id, currency } = entity.notes as {
       billing: Billing;
       period: Period;
       organizationId: string;
       id: string;
+      currency?: RazorpayCurrency;
     };
 
     if (!organizationId || !billing || !period) {
@@ -134,7 +136,8 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       pricing[billing].channel || 0,
       billing,
       period,
-      entity.cancel_at ? Number(entity.cancel_at) : null
+      entity.cancel_at ? Number(entity.cancel_at) : null,
+      currency || 'INR'
     );
   }
 
@@ -151,20 +154,24 @@ export class RazorpayProvider extends PaymentProviderAbstract {
 
   // Razorpay Plans have no "list by product name" like Stripe, and their
   // amount is immutable once created - we find one by matching our own notes
-  // AND the current amount, so a pricingINR change creates a fresh plan
+  // AND the current amount, so a pricing table change creates a fresh plan
   // instead of silently reusing an old one at the old price. Stale plans from
   // previous price points are just left behind in Razorpay, harmless clutter.
-  private async findOrCreatePlan(billing: Billing, period: Period) {
+  private async findOrCreatePlan(
+    billing: Billing,
+    period: Period,
+    currency: RazorpayCurrency
+  ) {
+    const pricingRow = getRazorpayPricing(billing, currency);
     const amount =
-      period === 'MONTHLY'
-        ? pricingINR[billing].month_price
-        : pricingINR[billing].year_price;
+      period === 'MONTHLY' ? pricingRow.month_price : pricingRow.year_price;
 
     const existing = await razorpay.plans.all({ count: 100 });
     const found = (existing.items || []).find(
       (p: any) =>
         p.notes?.billing === billing &&
         p.notes?.period === period &&
+        p.notes?.currency === currency &&
         !p.notes?.newUserDiscount &&
         p.item?.amount === amount * 100
     );
@@ -176,11 +183,11 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       period: period === 'MONTHLY' ? 'monthly' : 'yearly',
       interval: 1,
       item: {
-        name: `${billing} ${period}`,
-        amount: amount * 100, // paise
-        currency: 'INR',
+        name: `${billing} ${period} (${currency})`,
+        amount: amount * 100, // paise, or cents for USD
+        currency,
       },
-      notes: { billing, period },
+      notes: { billing, period, currency },
     });
   }
 
@@ -189,11 +196,14 @@ export class RazorpayProvider extends PaymentProviderAbstract {
   // amount - the subscription starts on this plan, then subscribe()
   // schedules a change back to the full-price plan for cycle end, so only
   // the first paid cycle is discounted.
-  private async findOrCreateDiscountedPlan(billing: Billing, period: Period) {
+  private async findOrCreateDiscountedPlan(
+    billing: Billing,
+    period: Period,
+    currency: RazorpayCurrency
+  ) {
+    const pricingRow = getRazorpayPricing(billing, currency);
     const fullAmount =
-      period === 'MONTHLY'
-        ? pricingINR[billing].month_price
-        : pricingINR[billing].year_price;
+      period === 'MONTHLY' ? pricingRow.month_price : pricingRow.year_price;
     const amount = Math.round(
       (fullAmount * (100 - NEW_USER_DISCOUNT_PERCENT)) / 100
     );
@@ -203,6 +213,7 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       (p: any) =>
         p.notes?.billing === billing &&
         p.notes?.period === period &&
+        p.notes?.currency === currency &&
         p.notes?.newUserDiscount === 'true' &&
         p.item?.amount === amount * 100
     );
@@ -214,11 +225,11 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       period: period === 'MONTHLY' ? 'monthly' : 'yearly',
       interval: 1,
       item: {
-        name: `${billing} ${period} (new user offer)`,
-        amount: amount * 100, // paise
-        currency: 'INR',
+        name: `${billing} ${period} (${currency}, new user offer)`,
+        amount: amount * 100, // paise, or cents for USD
+        currency,
       },
-      notes: { billing, period, newUserDiscount: 'true' },
+      notes: { billing, period, currency, newUserDiscount: 'true' },
     });
   }
 
@@ -230,14 +241,30 @@ export class RazorpayProvider extends PaymentProviderAbstract {
     allowTrial: boolean
   ) {
     const id = makeId(10);
-    const plan = await this.findOrCreatePlan(body.billing, body.period);
+    const currency: RazorpayCurrency = body.currency || 'INR';
+    if (currency === 'USD' && body.billing === 'ULTIMATE') {
+      throw new HttpException(
+        'The Scale plan is contact-us only in USD - reach out to support@shackyapps.in',
+        400
+      );
+    }
+    const plan = await this.findOrCreatePlan(body.billing, body.period, currency);
 
     // Existing subscriber changing tier/period - update the live Razorpay
-    // subscription in place instead of starting a second one. Falls through
-    // to creating a fresh subscription below if this org has no Razorpay
-    // subscription yet, or if the update is rejected (e.g. it already ended).
-    const org = await this._organizationService.getOrgById(organizationId);
-    if (org?.paymentId) {
+    // subscription in place instead of starting a second one. Gated on a
+    // CONFIRMED local subscription (not just org.paymentId, which is written
+    // as soon as any subscribe() call fires - before the webhook confirms
+    // the mandate) - otherwise a user whose first checkout was abandoned or
+    // whose webhook hasn't landed yet would have every retry silently try to
+    // "update" that unconfirmed subscription instead of getting a fresh
+    // checkout to actually pay with. Falls through to creating a fresh
+    // subscription below if this org has no confirmed subscription yet, or
+    // if the update is rejected (e.g. it already ended).
+    const [org, currentSubscription] = await Promise.all([
+      this._organizationService.getOrgById(organizationId),
+      this._subscriptionService.getSubscription(organizationId),
+    ]);
+    if (org?.paymentId && currentSubscription) {
       try {
         await razorpay.subscriptions.update(org.paymentId, {
           plan_id: plan.id,
@@ -264,7 +291,7 @@ export class RazorpayProvider extends PaymentProviderAbstract {
     // scheduled for cycle end right after creation, so only the first paid
     // cycle is discounted.
     const initialPlan = allowTrial
-      ? await this.findOrCreateDiscountedPlan(body.billing, body.period)
+      ? await this.findOrCreateDiscountedPlan(body.billing, body.period, currency)
       : plan;
 
     const subscription = await razorpay.subscriptions.create({
@@ -276,6 +303,7 @@ export class RazorpayProvider extends PaymentProviderAbstract {
         service: 'gitroom',
         billing: body.billing,
         period: body.period,
+        currency,
         organizationId,
         userId,
         uniqueId,
@@ -329,12 +357,15 @@ export class RazorpayProvider extends PaymentProviderAbstract {
       return { price: false };
     }
 
+    // A tier/period switch stays in whatever currency the subscription is
+    // already billed in - switching currency isn't a supported flow here.
+    const currency = (currentSubscription.currency as RazorpayCurrency) || 'INR';
     const priceKey = body.period === 'MONTHLY' ? 'month_price' : 'year_price';
     const currentPrice =
-      pricingINR[currentSubscription.subscriptionTier as Billing]?.[
+      getRazorpayPricing(currentSubscription.subscriptionTier as Billing, currency)?.[
         priceKey
       ] || 0;
-    const newPrice = pricingINR[body.billing][priceKey];
+    const newPrice = getRazorpayPricing(body.billing, currency)[priceKey];
 
     const cycleStart = razorpaySubscription.current_start;
     const cycleEnd = razorpaySubscription.current_end;

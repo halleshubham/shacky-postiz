@@ -23,7 +23,7 @@ export default function PrivacyPolicyPage() {
       <P>Last updated: 17 September 2026</P>
 
       <P>
-        Shacky Postiz (&quot;Shacky Postiz&quot;, &quot;we&quot;, &quot;us&quot; or &quot;our&quot;) is a
+        SocioBird (&quot;SocioBird&quot;, &quot;we&quot;, &quot;us&quot; or &quot;our&quot;) is a
         social media scheduling and management service, operated as an individual
         business based in India. This Privacy Policy explains what personal data we
         collect through this instance of the service, why we collect it, who we share
@@ -40,7 +40,7 @@ export default function PrivacyPolicyPage() {
 
       <H2>1. The service, in brief</H2>
       <P>
-        Shacky Postiz lets you connect your social media and messaging accounts,
+        SocioBird lets you connect your social media and messaging accounts,
         schedule and publish posts across them, view analytics, manage a media
         library, and collaborate with teammates inside an organization. To do that,
         we necessarily process the account details you give us, the credentials that
@@ -179,7 +179,7 @@ export default function PrivacyPolicyPage() {
 
       <H2>6. International data transfers</H2>
       <P>
-        This instance of Shacky Postiz is operated from India, and our
+        This instance of SocioBird is operated from India, and our
         infrastructure and the third-party processors listed above may store or
         process data outside your home country. Where required, we rely on
         contractual protections offered by those processors for any cross-border
@@ -224,7 +224,7 @@ export default function PrivacyPolicyPage() {
 
       <H2>10. Children</H2>
       <P>
-        Shacky Postiz is not directed at, and we do not knowingly collect personal
+        SocioBird is not directed at, and we do not knowingly collect personal
         data from, anyone under the age of 18. If you believe a child has provided
         us personal data, contact us and we will delete it.
       </P>
