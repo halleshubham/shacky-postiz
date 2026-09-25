@@ -20,9 +20,9 @@ export default function TermsOfServicePage() {
 
       <P>
         These Terms of Service (&quot;Terms&quot;) govern your access to and use of
-        Shacky Postiz (the &quot;Service&quot;), a social media scheduling and
+        SocioBird (the &quot;Service&quot;), a social media scheduling and
         management platform operated as an individual business based in India
-        (&quot;Shacky Postiz&quot;, &quot;we&quot;, &quot;us&quot;, &quot;our&quot;). By creating an
+        (&quot;SocioBird&quot;, &quot;we&quot;, &quot;us&quot;, &quot;our&quot;). By creating an
         account or using the Service, you agree to these Terms and to our{' '}
         <a href="/privacy" className="underline">
           Privacy Policy
@@ -123,8 +123,8 @@ export default function TermsOfServicePage() {
       <H2>9. Intellectual property</H2>
       <P>
         The Service, including its software, design, and branding, is owned by us
-        or our licensors and is protected by intellectual property laws. Shacky
-        Postiz is built on open-source software; nothing here restricts rights you
+        or our licensors and is protected by intellectual property laws. SocioBird
+        is built on open-source software; nothing here restricts rights you
         already have under the applicable open-source licenses.
       </P>
 

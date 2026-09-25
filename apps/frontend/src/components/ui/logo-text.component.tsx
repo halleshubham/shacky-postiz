@@ -7,7 +7,7 @@ export const LogoTextComponent: FC<{ className?: string }> = ({
   return (
     <img
       src="/logo-full.png"
-      alt="Shacky Postiz"
+      alt="SocioBird"
       className={clsx('h-[48px] w-auto object-contain', className)}
     />
   );

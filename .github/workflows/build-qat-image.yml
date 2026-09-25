@@ -2,13 +2,13 @@ name: "Build QAT Image"
 
 # Manual, on-demand counterpart to build-containers.yml (which only builds on
 # tag push, and pushes to the upstream gitroomhq/postiz-app image): lets any
-# branch be built and pushed to this fork's own ghcr.io/halleshubham/postiz-app
+# branch be built and pushed to this fork's own ghcr.io/halleshubham/sociobird-app
 # image under an explicit tag, for deploying a test build to social-qat.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to publish under ghcr.io/halleshubham/postiz-app"
+        description: "Tag to publish under ghcr.io/halleshubham/sociobird-app"
         required: false
   # GitHub only lets workflow_dispatch target a workflow already present on the
   # default branch, so until this file merges to main a push trigger scoped to
@@ -55,6 +55,6 @@ jobs:
         run: |
           docker buildx build --platform linux/amd64 \
             -f Dockerfile.dev \
-            -t ghcr.io/halleshubham/postiz-app:${{ steps.vars.outputs.tag }} \
+            -t ghcr.io/halleshubham/sociobird-app:${{ steps.vars.outputs.tag }} \
             --build-arg NEXT_PUBLIC_VERSION=${{ env.NEXT_PUBLIC_VERSION }} \
             --push .
