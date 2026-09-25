@@ -16,6 +16,30 @@ export const pricingINR: Record<
   ULTIMATE: { month_price: 9999, year_price: 95990 },
 };
 
+export type RazorpayCurrency = 'INR' | 'USD';
+
+// International pricing, now that Razorpay is activated for cross-border
+// cards/banks. ULTIMATE has no self-serve USD price - it's "contact us" in
+// USD on the marketing site, so it stays INR-only here too.
+export const pricingUSD: Record<'STANDARD' | 'TEAM' | 'PRO', RazorpayPricingInner> = {
+  STANDARD: { month_price: 9, year_price: 86 },
+  TEAM: { month_price: 19, year_price: 182 },
+  PRO: { month_price: 49, year_price: 470 },
+};
+
+export function getRazorpayPricing(
+  billing: keyof typeof pricingINR,
+  currency: RazorpayCurrency
+): RazorpayPricingInner {
+  if (currency === 'INR') {
+    return pricingINR[billing];
+  }
+  if (!(billing in pricingUSD)) {
+    throw new Error(`${billing} has no self-serve USD price - contact sales`);
+  }
+  return pricingUSD[billing as keyof typeof pricingUSD];
+}
+
 // One-time purchase, not a subscription plan - grants PRO with isLifetime.
 export const LIFETIME_PRO_PRICE_INR = 24999;
 

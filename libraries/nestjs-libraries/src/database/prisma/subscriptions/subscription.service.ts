@@ -254,7 +254,8 @@ export class SubscriptionService {
     totalChannels: number,
     billing: 'STANDARD' | 'TEAM' | 'PRO' | 'ULTIMATE',
     period: 'MONTHLY' | 'YEARLY',
-    cancelAt: number | null
+    cancelAt: number | null,
+    currency?: 'INR' | 'USD'
   ) {
     const current = await this._subscriptionRepository.getSubscriptionByOrgId(
       organizationId
@@ -286,7 +287,8 @@ export class SubscriptionService {
       period,
       cancelAt,
       undefined,
-      { id: organizationId }
+      { id: organizationId },
+      currency
     );
   }
 

@@ -14,6 +14,7 @@ import clsx from 'clsx';
 import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
 import {
   pricingINR,
+  pricingUSD,
   NEW_USER_DISCOUNT_PERCENT,
 } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing.razorpay';
 import { FAQComponent } from '@gitroom/frontend/components/billing/faq.component';
@@ -58,12 +59,11 @@ const loadRazorpayCheckout = () =>
 export const Prorate: FC<{
   period: 'MONTHLY' | 'YEARLY';
   pack: 'STANDARD' | 'PRO';
+  currencySymbol: string;
 }> = (props) => {
-  const { period, pack } = props;
+  const { period, pack, currencySymbol } = props;
   const t = useT();
   const fetch = useFetch();
-  const { currency } = useVariables();
-  const currencySymbol = currency === 'inr' ? '₹' : '$';
   const [price, setPrice] = useState<number | false>(0);
   const [loading, setLoading] = useState(false);
   const calculatePrice = useDebouncedCallback(async () => {
@@ -244,15 +244,34 @@ export const MainBillingComponent: FC<{
   const { sub } = props;
   const { isGeneral, currency, newUserDiscountEnabled, razorpayKeyId } =
     useVariables();
-  const currencySymbol = currency === 'inr' ? '₹' : '$';
+  // Razorpay is now activated for USD too, so instances running it get an
+  // INR/USD toggle here. Stripe-only instances have no choice to make -
+  // `currency` from context is already the only currency they ever bill in.
+  const hasCurrencyChoice = !!razorpayKeyId;
+  const [currencyToggle, setCurrencyToggle] = useState<'on' | 'off'>(
+    currency === 'usd' ? 'on' : 'off'
+  );
+  const selectedCurrency = hasCurrencyChoice
+    ? currencyToggle === 'on'
+      ? 'usd'
+      : 'inr'
+    : currency;
+  const currencySymbol = selectedCurrency === 'inr' ? '₹' : '$';
   const getPrice = useCallback(
     (tier: string, period: 'month_price' | 'year_price') => {
-      if (currency === 'inr' && tier in pricingINR) {
+      if (selectedCurrency === 'inr' && tier in pricingINR) {
         return pricingINR[tier as keyof typeof pricingINR][period];
+      }
+      if (hasCurrencyChoice && selectedCurrency === 'usd') {
+        // ULTIMATE has no self-serve USD price - contact-us only, same as
+        // the marketing site's "Scale" tier.
+        return tier in pricingUSD
+          ? pricingUSD[tier as keyof typeof pricingUSD][period]
+          : null;
       }
       return pricing[tier][period];
     },
-    [currency]
+    [selectedCurrency, hasCurrencyChoice]
   );
   const { mutate } = useSWRConfig();
   const fetch = useFetch();
@@ -428,6 +447,9 @@ export const MainBillingComponent: FC<{
                 period: monthlyOrYearly === 'on' ? 'YEARLY' : 'MONTHLY',
                 utm,
                 billing,
+                ...(hasCurrencyChoice
+                  ? { currency: selectedCurrency.toUpperCase() }
+                  : {}),
                 ...(dub ? { dub } : {}),
               }),
             })
@@ -516,7 +538,7 @@ export const MainBillingComponent: FC<{
         }
         setLoading(false);
       },
-    [monthlyOrYearly, subscription, user, utm]
+    [monthlyOrYearly, subscription, user, utm, hasCurrencyChoice, selectedCurrency]
   );
   if (user?.isLifetime) {
     router.replace('/');
@@ -550,6 +572,15 @@ export const MainBillingComponent: FC<{
     <div className="flex flex-col gap-[16px]">
       <div className="flex flex-row">
         <div className="flex-1 text-[20px]">{t('plans', 'Plans')}</div>
+        {hasCurrencyChoice && (
+          <div className="flex items-center gap-[16px] me-[24px]">
+            <div>{t('currency_inr', 'INR')}</div>
+            <div>
+              <Slider value={currencyToggle} onChange={setCurrencyToggle} />
+            </div>
+            <div>{t('currency_usd', 'USD')}</div>
+          </div>
+        )}
         <div className="flex items-center gap-[16px]">
           <div>{t('monthly', 'MONTHLY')}</div>
           <div>
@@ -569,10 +600,17 @@ export const MainBillingComponent: FC<{
               monthlyOrYearly === 'on' ? 'year_price' : 'month_price'
             );
             const isNewUserOffer =
-              !!user?.allowTrial && newUserDiscountEnabled && name !== 'FREE';
-            const discountedPrice = Math.round(
-              (fullPrice * (100 - NEW_USER_DISCOUNT_PERCENT)) / 100
-            );
+              !!user?.allowTrial &&
+              newUserDiscountEnabled &&
+              name !== 'FREE' &&
+              fullPrice !== null;
+            const discountedPrice =
+              fullPrice === null
+                ? null
+                : Math.round((fullPrice * (100 - NEW_USER_DISCOUNT_PERCENT)) / 100);
+            // Razorpay has no self-serve USD price for this tier (ULTIMATE) -
+            // same "contact us" treatment as the marketing site's Scale plan.
+            const isContactUsOnly = fullPrice === null;
             return (
             <div
               key={name}
@@ -586,22 +624,37 @@ export const MainBillingComponent: FC<{
               )}
               <div className="text-[18px]">{name}</div>
               <div className="text-[38px] flex gap-[6px] items-center">
-                {isNewUserOffer && (
-                  <div className="text-[18px] text-customColor18 line-through">
-                    {currencySymbol}
-                    {fullPrice}
-                  </div>
+                {isContactUsOnly ? (
+                  <div>{t('custom_pricing', 'Custom')}</div>
+                ) : (
+                  <>
+                    {isNewUserOffer && (
+                      <div className="text-[18px] text-customColor18 line-through">
+                        {currencySymbol}
+                        {fullPrice}
+                      </div>
+                    )}
+                    <div>
+                      {currencySymbol}
+                      {isNewUserOffer ? discountedPrice : fullPrice}
+                    </div>
+                    <div className={`text-[14px] text-customColor18`}>
+                      {monthlyOrYearly === 'on' ? '/year' : '/month'}
+                    </div>
+                  </>
                 )}
-                <div>
-                  {currencySymbol}
-                  {isNewUserOffer ? discountedPrice : fullPrice}
-                </div>
-                <div className={`text-[14px] text-customColor18`}>
-                  {monthlyOrYearly === 'on' ? '/year' : '/month'}
-                </div>
               </div>
               <div className="text-[14px] flex gap-[10px]">
-                {currentPackage === name.toUpperCase() &&
+                {isContactUsOnly ? (
+                  <Button
+                    onClick={() => {
+                      window.location.href =
+                        'mailto:support@shackyapps.in?subject=SocioBird%20Scale%20plan';
+                    }}
+                  >
+                    {t('email_us', 'Email us')}
+                  </Button>
+                ) : currentPackage === name.toUpperCase() &&
                 subscription?.cancelAt ? (
                   <div className="gap-[3px] flex flex-col">
                     <div>
@@ -653,10 +706,12 @@ export const MainBillingComponent: FC<{
                 {subscription &&
                   currentPackage !== name.toUpperCase() &&
                   name !== 'FREE' &&
-                  !!name && (
+                  !!name &&
+                  !isContactUsOnly && (
                     <Prorate
                       period={monthlyOrYearly === 'on' ? 'YEARLY' : 'MONTHLY'}
                       pack={name.toUpperCase() as 'STANDARD' | 'PRO'}
+                      currencySymbol={currencySymbol}
                     />
                   )}
               </div>
