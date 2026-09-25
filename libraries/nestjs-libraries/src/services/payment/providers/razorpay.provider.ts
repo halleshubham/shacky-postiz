@@ -251,11 +251,20 @@ export class RazorpayProvider extends PaymentProviderAbstract {
     const plan = await this.findOrCreatePlan(body.billing, body.period, currency);
 
     // Existing subscriber changing tier/period - update the live Razorpay
-    // subscription in place instead of starting a second one. Falls through
-    // to creating a fresh subscription below if this org has no Razorpay
-    // subscription yet, or if the update is rejected (e.g. it already ended).
-    const org = await this._organizationService.getOrgById(organizationId);
-    if (org?.paymentId) {
+    // subscription in place instead of starting a second one. Gated on a
+    // CONFIRMED local subscription (not just org.paymentId, which is written
+    // as soon as any subscribe() call fires - before the webhook confirms
+    // the mandate) - otherwise a user whose first checkout was abandoned or
+    // whose webhook hasn't landed yet would have every retry silently try to
+    // "update" that unconfirmed subscription instead of getting a fresh
+    // checkout to actually pay with. Falls through to creating a fresh
+    // subscription below if this org has no confirmed subscription yet, or
+    // if the update is rejected (e.g. it already ended).
+    const [org, currentSubscription] = await Promise.all([
+      this._organizationService.getOrgById(organizationId),
+      this._subscriptionService.getSubscription(organizationId),
+    ]);
+    if (org?.paymentId && currentSubscription) {
       try {
         await razorpay.subscriptions.update(org.paymentId, {
           plan_id: plan.id,
