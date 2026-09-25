@@ -57,7 +57,7 @@ export class NotificationService {
         await this._temporalService.client
           .getRawClient()
           ?.workflow.signalWithStart('digestEmailWorkflowV2', {
-            workflowId: 'digest_email_workflow_' + orgId,
+            workflowId: 'digest_email_workflow_v2_' + orgId,
             signal: 'email',
             signalArgs: [
               [
